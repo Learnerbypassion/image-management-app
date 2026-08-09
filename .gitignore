@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.egg-info/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Uploads (temporary processing)
+server/uploads/
+server/temp/
+
+# Build output
+client/dist/
+server/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Face service models (downloaded at runtime)
+face-service/models/
+face-service/.insightface/
+
+# Docker
+.docker/
+
+# Coverage
+coverage/
+.nyc_output/

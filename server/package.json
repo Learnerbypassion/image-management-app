@@ -1,0 +1,23 @@
+{
+  "name": "snapfind-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/app.js",
+    "start": "node src/app.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "mongoose": "^8.14.3",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "multer": "^2.0.1",
+    "axios": "^1.9.0",
+    "helmet": "^8.1.0",
+    "morgan": "^1.10.0",
+    "cookie-parser": "^1.4.7"
+  }
+}
