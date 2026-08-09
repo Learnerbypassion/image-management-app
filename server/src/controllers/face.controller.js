@@ -1,4 +1,5 @@
 import axios from 'axios';
+import FormData from 'form-data';
 import FaceEmbedding from '../models/FaceEmbedding.js';
 import Photo from '../models/Photo.js';
 import env from '../config/env.js';
@@ -15,11 +16,10 @@ export const matchSelfie = async (req, res, next) => {
 
     // 1. Send selfie to face service
     const formData = new FormData();
-    formData.append(
-      'file',
-      new Blob([req.file.buffer], { type: req.file.mimetype }),
-      'selfie.jpg'
-    );
+    formData.append('file', req.file.buffer, {
+      filename: 'selfie.jpg',
+      contentType: req.file.mimetype,
+    });
 
     let faceResponse;
     try {
@@ -27,8 +27,8 @@ export const matchSelfie = async (req, res, next) => {
         `${env.FACE_SERVICE_URL}/detect`,
         formData,
         {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          timeout: 15000,
+          headers: formData.getHeaders(),
+          timeout: 30000,
         }
       );
     } catch (err) {

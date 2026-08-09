@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
+import FormData from 'form-data';
 import Photo from '../models/Photo.js';
 import FaceEmbedding from '../models/FaceEmbedding.js';
 import Room from '../models/Room.js';
@@ -121,17 +122,19 @@ export const indexPhotos = async (req, res, next) => {
           continue;
         }
 
-        // Send to face service
-        const imageBuffer = fs.readFileSync(imagePath);
+        // Send to face service using form-data stream
         const formData = new FormData();
-        formData.append('file', new Blob([imageBuffer], { type: photo.mimeType }), photo.fileName);
+        formData.append('file', fs.createReadStream(imagePath), {
+          filename: photo.fileName,
+          contentType: photo.mimeType,
+        });
 
         const response = await axios.post(
           `${env.FACE_SERVICE_URL}/detect`,
           formData,
           {
-            headers: { 'Content-Type': 'multipart/form-data' },
-            timeout: 30000, // 30s per photo
+            headers: formData.getHeaders(),
+            timeout: 60000, // 60s per photo
           }
         );
 
