@@ -34,6 +34,10 @@ const roomSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  driveFolderName: {
+    type: String,
+    default: null,
+  },
   status: {
     type: String,
     enum: ['created', 'indexing', 'ready', 'error'],

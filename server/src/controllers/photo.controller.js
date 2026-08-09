@@ -70,7 +70,7 @@ export const getRoomPhotos = async (req, res, next) => {
   }
 };
 
-// GET /api/photos/:photoId — Serve a photo image (Phase 2: local file)
+// GET /api/photos/:photoId — Serve a photo image (Local file or Drive proxy)
 export const getPhoto = async (req, res, next) => {
   try {
     const photo = await Photo.findById(req.params.photoId);
@@ -83,7 +83,19 @@ export const getPhoto = async (req, res, next) => {
       return res.sendFile(path.resolve(photo.localPath));
     }
 
-    // Phase 4: would proxy from Google Drive here
+    // Phase 4: Stream from Google Drive API using authorized access
+    if (photo.driveFileId) {
+      try {
+        const { getPhotoStream } = await import('../services/googleDrive.service.js');
+        res.setHeader('Content-Type', photo.mimeType || 'image/jpeg');
+        const driveStream = await getPhotoStream(req.user, photo.driveFileId);
+        return driveStream.pipe(res);
+      } catch (driveErr) {
+        logger.error(`Failed to stream photo ${photo.driveFileId} from Drive:`, driveErr.message);
+        return res.status(502).json({ error: 'Failed to retrieve photo from Google Drive.' });
+      }
+    }
+
     return res.status(404).json({ error: 'Photo file not available.' });
   } catch (error) {
     next(error);

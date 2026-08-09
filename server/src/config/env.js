@@ -29,6 +29,9 @@ const env = {
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || process.env.JWT_EXPIRE || '7d',
   FACE_SERVICE_URL: process.env.FACE_SERVICE_URL || 'http://localhost:8000',
   CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173',
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
+  GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5000/api/drive/callback',
 };
 
 // Validate required vars

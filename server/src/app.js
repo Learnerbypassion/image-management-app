@@ -16,6 +16,7 @@ import roomRoutes from './routes/room.routes.js';
 import photoRoutes from './routes/photo.routes.js';
 import faceRoutes from './routes/face.routes.js';
 import singlePhotoRoutes from './routes/singlePhoto.routes.js';
+import driveRoutes from './routes/drive.routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -45,6 +46,7 @@ app.get('/api/health', (req, res) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/drive', driveRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/rooms', photoRoutes);
 app.use('/api/rooms', faceRoutes);

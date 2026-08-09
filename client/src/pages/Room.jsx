@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import ProcessingProgress from '../components/ProcessingProgress';
+import DriveFolderPicker from '../components/DriveFolderPicker';
 import api from '../services/api';
 import {
   HiOutlineCloudArrowUp,
@@ -9,6 +10,8 @@ import {
   HiOutlineCamera,
   HiOutlineTrash,
   HiOutlineClipboardDocument,
+  HiOutlineFolder,
+  HiOutlineCheckCircle,
 } from 'react-icons/hi2';
 
 const Room = () => {
@@ -24,6 +27,11 @@ const Room = () => {
   const [successMsg, setSuccessMsg] = useState('');
   const [copied, setCopied] = useState(false);
 
+  // Google Drive state
+  const [isDriveConnected, setIsDriveConnected] = useState(false);
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [indexingDrive, setIndexingDrive] = useState(false);
+
   const isOwner = room && user && room.ownerId === user._id;
 
   const fetchRoom = useCallback(async () => {
@@ -37,9 +45,19 @@ const Room = () => {
     }
   }, [roomId]);
 
+  const checkDriveStatus = useCallback(async () => {
+    try {
+      const { data } = await api.get('/drive/status');
+      setIsDriveConnected(data.isConnected);
+    } catch {
+      setIsDriveConnected(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchRoom();
-  }, [fetchRoom]);
+    checkDriveStatus();
+  }, [fetchRoom, checkDriveStatus]);
 
   // Poll for indexing status
   useEffect(() => {
@@ -64,6 +82,31 @@ const Room = () => {
 
     return () => clearInterval(interval);
   }, [room?.status, roomId]);
+
+  const handleConnectDrive = async () => {
+    try {
+      const { data } = await api.get('/drive/connect');
+      window.location.href = data.url;
+    } catch (err) {
+      setError('Failed to initiate Google Drive authentication. Please check your credentials in .env.');
+    }
+  };
+
+  const handleIndexDrive = async () => {
+    setIndexingDrive(true);
+    setError('');
+    setSuccessMsg('');
+
+    try {
+      const { data } = await api.post(`/rooms/${roomId}/index-drive`);
+      setSuccessMsg(data.message);
+      fetchRoom();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Drive photo indexing failed.');
+    } finally {
+      setIndexingDrive(false);
+    }
+  };
 
   const handleUpload = async (e) => {
     const files = e.target.files;
@@ -157,6 +200,14 @@ const Room = () => {
               {room.description && (
                 <p className="text-surface-200 text-sm mt-1">{room.description}</p>
               )}
+
+              {/* Linked Drive Folder Badge */}
+              {room.driveFolderId && (
+                <div className="inline-flex items-center gap-2 mt-3 bg-primary-600/20 border border-primary-500/40 rounded-lg px-3 py-1.5 text-xs text-primary-300">
+                  <HiOutlineFolder className="text-primary-400 text-sm" />
+                  <span>Drive Folder: <strong>{room.driveFolderName || room.driveFolderId}</strong></span>
+                </div>
+              )}
             </div>
 
             {/* Room code */}
@@ -200,9 +251,62 @@ const Room = () => {
           />
         </div>
 
-        {/* Actions */}
+        {/* Actions Section */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-          {/* Upload Photos (owner only) */}
+          {/* Option A: Connect Google Drive (owner only) */}
+          {isOwner && !isDriveConnected && (
+            <button
+              onClick={handleConnectDrive}
+              className="glass rounded-2xl p-6 card-hover text-center cursor-pointer group"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                <HiOutlineCloudArrowUp className="text-white text-2xl" />
+              </div>
+              <h3 className="text-lg font-semibold text-white">Connect Google Drive</h3>
+              <p className="text-sm text-surface-200 mt-1">
+                Link your Google Drive account to select event folders
+              </p>
+            </button>
+          )}
+
+          {/* Option B: Select Drive Folder (owner only, when Drive is connected) */}
+          {isOwner && isDriveConnected && (
+            <button
+              onClick={() => setShowFolderPicker(true)}
+              className="glass rounded-2xl p-6 card-hover text-center cursor-pointer group"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                <HiOutlineFolder className="text-white text-2xl" />
+              </div>
+              <h3 className="text-lg font-semibold text-white">
+                {room.driveFolderId ? 'Change Drive Folder' : 'Select Drive Folder'}
+              </h3>
+              <p className="text-sm text-surface-200 mt-1">
+                {room.driveFolderName ? room.driveFolderName : 'Choose a photo folder from your Drive'}
+              </p>
+            </button>
+          )}
+
+          {/* Option C: Index Google Drive Photos (owner only, when folder is linked) */}
+          {isOwner && isDriveConnected && room.driveFolderId && (
+            <button
+              onClick={handleIndexDrive}
+              disabled={indexingDrive || room.status === 'indexing'}
+              className="glass rounded-2xl p-6 card-hover text-center cursor-pointer group disabled:opacity-50"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                <HiOutlineBolt className="text-white text-2xl" />
+              </div>
+              <h3 className="text-lg font-semibold text-white">
+                {indexingDrive ? 'Indexing Drive...' : 'Index Google Drive'}
+              </h3>
+              <p className="text-sm text-surface-200 mt-1">
+                Stream & detect faces directly from Drive
+              </p>
+            </button>
+          )}
+
+          {/* Option D: Local Upload Photos (owner fallback) */}
           {isOwner && (
             <label className="glass rounded-2xl p-6 card-hover cursor-pointer group text-center">
               <input
@@ -217,10 +321,10 @@ const Room = () => {
                 <HiOutlineCloudArrowUp className="text-white text-2xl" />
               </div>
               <h3 className="text-lg font-semibold text-white">
-                {uploading ? 'Uploading...' : 'Upload Photos'}
+                {uploading ? 'Uploading...' : 'Upload Local Photos'}
               </h3>
               <p className="text-sm text-surface-200 mt-1">
-                Select event photos to upload
+                Upload photos from local storage
               </p>
               {uploading && (
                 <div className="spinner mx-auto mt-3" />
@@ -228,8 +332,8 @@ const Room = () => {
             </label>
           )}
 
-          {/* Start Indexing (owner only) */}
-          {isOwner && room.totalPhotos > 0 && (
+          {/* Option E: Start Local Indexing (owner only, when local photos exist) */}
+          {isOwner && room.totalPhotos > 0 && !room.driveFolderId && (
             <button
               onClick={handleIndex}
               disabled={indexing || room.status === 'indexing'}
@@ -247,7 +351,7 @@ const Room = () => {
             </button>
           )}
 
-          {/* Find My Photos */}
+          {/* Option F: Find My Photos (all members) */}
           {room.status === 'ready' && (
             <Link
               to={`/room/${roomId}/selfie`}
@@ -277,6 +381,22 @@ const Room = () => {
           </div>
         )}
       </div>
+
+      {/* Drive Folder Picker Modal */}
+      {showFolderPicker && (
+        <DriveFolderPicker
+          roomId={roomId}
+          onSelect={(folder) => {
+            setRoom((prev) => ({
+              ...prev,
+              driveFolderId: folder.id,
+              driveFolderName: folder.name,
+            }));
+            setSuccessMsg(`Linked folder: ${folder.name}`);
+          }}
+          onClose={() => setShowFolderPicker(false)}
+        />
+      )}
     </div>
   );
 };

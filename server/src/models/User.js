@@ -26,6 +26,12 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  googleTokens: {
+    accessToken: { type: String, default: null },
+    refreshToken: { type: String, default: null }, // Encrypted AES-256-GCM
+    expiryDate: { type: Number, default: null },
+    isConnected: { type: Boolean, default: false },
+  },
 }, {
   timestamps: true,
 });
