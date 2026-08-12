@@ -113,19 +113,26 @@ export const listPhotosInFolder = async (user, folderId) => {
 
   do {
     const response = await drive.files.list({
-      q: `'${folderId}' in parents and (mimeType contains 'image/') and trashed = false`,
+      q: `'${folderId}' in parents and trashed = false`,
       fields: 'nextPageToken, files(id, name, mimeType, size, modifiedTime, imageMediaMetadata)',
       pageSize: 100,
       pageToken: pageToken,
     });
 
     if (response.data.files) {
-      photos = photos.concat(response.data.files);
+      // Filter for images by mimeType OR file extension
+      const imageFiles = response.data.files.filter((f) => {
+        const isImageMime = f.mimeType && f.mimeType.startsWith('image/');
+        const isImageExt = /\.(jpg|jpeg|png|webp|heic|bmp|tiff)$/i.test(f.name);
+        return isImageMime || isImageExt;
+      });
+      photos = photos.concat(imageFiles);
     }
 
     pageToken = response.data.nextPageToken;
   } while (pageToken);
 
+  logger.info(`Found ${photos.length} image files in Drive folder ${folderId}`);
   return photos;
 };
 

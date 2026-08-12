@@ -5,7 +5,7 @@ import Photo from '../models/Photo.js';
 import env from '../config/env.js';
 import logger from '../utils/logger.js';
 
-const SIMILARITY_THRESHOLD = parseFloat(process.env.SIMILARITY_THRESHOLD || '0.5');
+const SIMILARITY_THRESHOLD = parseFloat(process.env.SIMILARITY_THRESHOLD || '0.68');
 
 // POST /api/rooms/:roomId/match — Selfie matching
 export const matchSelfie = async (req, res, next) => {

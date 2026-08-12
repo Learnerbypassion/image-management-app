@@ -98,7 +98,7 @@ const Room = () => {
     setSuccessMsg('');
 
     try {
-      const { data } = await api.post(`/rooms/${roomId}/index-drive`);
+      const { data } = await api.post(`/drive/rooms/${roomId}/index-drive`);
       setSuccessMsg(data.message);
       fetchRoom();
     } catch (err) {

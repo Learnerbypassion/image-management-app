@@ -105,7 +105,7 @@ export const indexDrivePhotos = async (req, res, next) => {
     const driveFiles = await driveService.listPhotosInFolder(req.user, room.driveFolderId);
 
     if (driveFiles.length === 0) {
-      return res.status(400).json({ error: 'No image files found in the selected Drive folder.' });
+      return res.status(400).json({ error: 'No image files (JPEG, PNG, WebP, HEIC) found directly inside the selected Google Drive folder.' });
     }
 
     // 2. Identify unindexed photos
@@ -118,92 +118,99 @@ export const indexDrivePhotos = async (req, res, next) => {
       return res.json({ message: 'All photos in this Drive folder are already indexed.' });
     }
 
-    // Update room status
+    // 3. Mark room status as indexing & total photos
     room.status = 'indexing';
     room.totalPhotos = existingPhotos.length + unindexedDriveFiles.length;
     await room.save();
 
-    // 3. Process photos in memory (RAM only — zero local file disk persistence!)
-    let processedCount = room.processedPhotos || 0;
-    let facesCount = 0;
-
-    for (const driveFile of unindexedDriveFiles) {
-      try {
-        logger.info(`Processing Drive file ${driveFile.name} (${driveFile.id})...`);
-
-        // Create Photo metadata document
-        const photo = await Photo.create({
-          roomId: room._id,
-          driveFileId: driveFile.id,
-          fileName: driveFile.name,
-          mimeType: driveFile.mimeType || 'image/jpeg',
-          size: driveFile.size ? parseInt(driveFile.size) : 0,
-          width: driveFile.imageMediaMetadata?.width || null,
-          height: driveFile.imageMediaMetadata?.height || null,
-          indexed: false,
-        });
-
-        // Download image binary directly into RAM buffer
-        const imageBuffer = await driveService.getPhotoBuffer(req.user, driveFile.id);
-
-        // Send buffer to Python face service via form-data
-        const formData = new FormData();
-        formData.append('file', imageBuffer, {
-          filename: driveFile.name,
-          contentType: driveFile.mimeType || 'image/jpeg',
-        });
-
-        const response = await axios.post(
-          `${env.FACE_SERVICE_URL}/detect`,
-          formData,
-          {
-            headers: formData.getHeaders(),
-            timeout: 60000,
-          }
-        );
-
-        const { faces } = response.data;
-
-        // Store face embeddings in MongoDB
-        if (faces && faces.length > 0) {
-          const embeddings = faces.map((face) => ({
-            roomId: room._id,
-            photoId: photo._id,
-            embedding: face.embedding,
-            boundingBox: face.bounding_box,
-            qualityScore: face.quality_score,
-            confidence: face.confidence,
-          }));
-
-          await FaceEmbedding.insertMany(embeddings);
-          facesCount += faces.length;
-        }
-
-        // Mark photo as indexed
-        photo.indexed = true;
-        photo.facesFound = faces?.length || 0;
-        await photo.save();
-
-        processedCount++;
-
-        // Update room status
-        await Room.findByIdAndUpdate(room._id, {
-          processedPhotos: processedCount,
-          $inc: { facesDetected: faces?.length || 0 },
-        });
-      } catch (err) {
-        logger.error(`Error processing Drive photo ${driveFile.name}:`, err.message);
-      }
-    }
-
-    // Mark room ready
-    await Room.findByIdAndUpdate(room._id, { status: 'ready' });
-
+    // Respond immediately so HTTP proxy doesn't time out or cause ECONNRESET
     res.json({
-      message: 'Google Drive photo indexing complete.',
-      processed: processedCount,
-      facesDetected: facesCount,
+      message: `Indexing started for ${unindexedDriveFiles.length} Drive photo(s).`,
+      total: unindexedDriveFiles.length,
     });
+
+    // 4. Background processing (Async job execution)
+    (async () => {
+      let processedCount = room.processedPhotos || 0;
+      let facesCount = 0;
+
+      for (const driveFile of unindexedDriveFiles) {
+        try {
+          logger.info(`Processing Drive file ${driveFile.name} (${driveFile.id})...`);
+
+          // Create Photo metadata document
+          const photo = await Photo.create({
+            roomId: room._id,
+            driveFileId: driveFile.id,
+            fileName: driveFile.name,
+            mimeType: driveFile.mimeType || 'image/jpeg',
+            size: driveFile.size ? parseInt(driveFile.size) : 0,
+            width: driveFile.imageMediaMetadata?.width || null,
+            height: driveFile.imageMediaMetadata?.height || null,
+            indexed: false,
+          });
+
+          // Download image binary directly into RAM buffer
+          const imageBuffer = await driveService.getPhotoBuffer(req.user, driveFile.id);
+
+          // Send buffer to Python face service via form-data
+          const formData = new FormData();
+          formData.append('file', imageBuffer, {
+            filename: driveFile.name,
+            contentType: driveFile.mimeType || 'image/jpeg',
+          });
+
+          const response = await axios.post(
+            `${env.FACE_SERVICE_URL}/detect`,
+            formData,
+            {
+              headers: formData.getHeaders(),
+              timeout: 60000,
+            }
+          );
+
+          const { faces } = response.data;
+
+          // Store face embeddings in MongoDB
+          if (faces && faces.length > 0) {
+            const embeddings = faces.map((face) => ({
+              roomId: room._id,
+              photoId: photo._id,
+              embedding: face.embedding,
+              boundingBox: face.bounding_box,
+              qualityScore: face.quality_score,
+              confidence: face.confidence,
+            }));
+
+            await FaceEmbedding.insertMany(embeddings);
+            facesCount += faces.length;
+          }
+
+          // Mark photo as indexed
+          photo.indexed = true;
+          photo.facesFound = faces?.length || 0;
+          await photo.save();
+
+          processedCount++;
+
+          // Update room status
+          await Room.findByIdAndUpdate(room._id, {
+            processedPhotos: processedCount,
+            $inc: { facesDetected: faces?.length || 0 },
+          });
+        } catch (err) {
+          logger.error(`Error processing Drive photo ${driveFile.name}:`, err.message);
+        }
+      }
+
+      // Mark room ready when background processing finishes
+      await Room.findByIdAndUpdate(room._id, { status: 'ready' });
+      logger.success(`Google Drive indexing finished for room ${room._id}. Total faces detected: ${facesCount}`);
+    })().catch((err) => {
+      logger.error('Background Drive indexing error:', err);
+      Room.findByIdAndUpdate(room._id, { status: 'ready' }).catch(() => {});
+    });
+
   } catch (error) {
     next(error);
   }
