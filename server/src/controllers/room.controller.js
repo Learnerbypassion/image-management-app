@@ -91,6 +91,39 @@ export const joinRoom = async (req, res, next) => {
   }
 };
 
+// GET /api/rooms/token/:publicToken — Resolve room by public token (for QR code & guest access)
+export const getRoomByToken = async (req, res, next) => {
+  try {
+    const { publicToken } = req.params;
+    let room = await Room.findOne({ publicToken });
+
+    // Fallback: if existing room lacks publicToken, search by code or id
+    if (!room && publicToken.length === 6) {
+      room = await Room.findOne({ code: publicToken.toUpperCase() });
+    }
+
+    if (!room) {
+      return res.status(404).json({ error: 'Event room not found.' });
+    }
+
+    // Return public-safe room details
+    res.json({
+      room: {
+        _id: room._id,
+        name: room.name,
+        code: room.code,
+        publicToken: room.publicToken,
+        organization: room.organization,
+        description: room.description,
+        totalPhotos: room.totalPhotos,
+        status: room.status,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // DELETE /api/rooms/:roomId
 export const deleteRoom = async (req, res, next) => {
   try {

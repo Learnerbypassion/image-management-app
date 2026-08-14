@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 
 const roomSchema = new mongoose.Schema({
   name: {
@@ -13,6 +14,13 @@ const roomSchema = new mongoose.Schema({
     unique: true,
     uppercase: true,
     length: 6,
+  },
+  // Public join token for QR codes and instant guest access (/join/:publicToken)
+  publicToken: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true,
   },
   ownerId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -29,7 +37,15 @@ const roomSchema = new mongoose.Schema({
     trim: true,
     default: '',
   },
-  // Google Drive fields (Phase 4)
+
+  // Storage provider mapping
+  storageProvider: {
+    type: String,
+    enum: ['google-drive', 'local', 's3', 'cloudinary'],
+    default: 'google-drive',
+  },
+
+  // Google Drive fields
   driveFolderId: {
     type: String,
     default: null,
@@ -38,6 +54,31 @@ const roomSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+
+  // Sync state tracking
+  sync: {
+    enabled: { type: Boolean, default: true },
+    status: {
+      type: String,
+      enum: ['idle', 'syncing', 'error'],
+      default: 'idle',
+    },
+    lastSyncedAt: { type: Date, default: null },
+    lastSyncStartedAt: { type: Date, default: null },
+    lastSyncCompletedAt: { type: Date, default: null },
+    error: { type: String, default: null },
+  },
+
+  // Extended processing stats
+  processing: {
+    total: { type: Number, default: 0 },
+    pending: { type: Number, default: 0 },
+    processing: { type: Number, default: 0 },
+    completed: { type: Number, default: 0 },
+    failed: { type: Number, default: 0 },
+  },
+
+  // Legacy status
   status: {
     type: String,
     enum: ['created', 'indexing', 'ready', 'error'],
@@ -63,7 +104,16 @@ const roomSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-// Index for fast owner lookups
+// Auto-generate publicToken before save if not present
+roomSchema.pre('save', function (next) {
+  if (!this.publicToken) {
+    const randomSuffix = crypto.randomBytes(3).toString('hex').toUpperCase();
+    const cleanName = this.name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8);
+    this.publicToken = `${cleanName || 'ROOM'}-${randomSuffix}`;
+  }
+  next();
+});
+
 roomSchema.index({ ownerId: 1 });
 
 const Room = mongoose.model('Room', roomSchema);

@@ -3,6 +3,7 @@ import {
   createRoom,
   getMyRooms,
   getRoom,
+  getRoomByToken,
   joinRoom,
   deleteRoom,
 } from '../controllers/room.controller.js';
@@ -11,7 +12,10 @@ import roomAccess from '../middleware/roomAccess.js';
 
 const router = Router();
 
-// All room routes require authentication
+// Public room lookup via QR / public token
+router.get('/token/:publicToken', getRoomByToken);
+
+// Authenticated room management routes
 router.use(auth);
 
 router.post('/', createRoom);

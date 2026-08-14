@@ -23,10 +23,17 @@ export const uploadPhotos = async (req, res, next) => {
     for (const file of req.files) {
       const photo = await Photo.create({
         roomId: req.room._id,
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        size: file.size,
-        localPath: file.path,
+        storageProvider: 'local',
+        storage: {
+          fileId: file.filename,
+          fileName: file.originalname,
+          mimeType: file.mimetype,
+          size: file.size,
+          localPath: file.path,
+        },
+        processing: {
+          status: 'pending',
+        },
         indexed: false,
       });
       photos.push(photo);
@@ -70,7 +77,7 @@ export const getRoomPhotos = async (req, res, next) => {
   }
 };
 
-// GET /api/photos/:photoId — Serve a photo image (Local file or Drive proxy)
+// GET /api/photos/:photoId — Serve a photo image (Local file or Drive proxy via StorageService)
 export const getPhoto = async (req, res, next) => {
   try {
     const photo = await Photo.findById(req.params.photoId);
@@ -78,25 +85,23 @@ export const getPhoto = async (req, res, next) => {
       return res.status(404).json({ error: 'Photo not found.' });
     }
 
-    // Phase 2: serve from local disk
-    if (photo.localPath && fs.existsSync(photo.localPath)) {
-      return res.sendFile(path.resolve(photo.localPath));
+    const providerName = photo.storageProvider || (photo.driveFileId ? 'google-drive' : 'local');
+    const fileId = photo.storage?.fileId || photo.driveFileId || photo.storage?.localPath || photo.localPath;
+
+    if (!fileId) {
+      return res.status(404).json({ error: 'Photo file identifier missing.' });
     }
 
-    // Phase 4: Stream from Google Drive API using authorized access
-    if (photo.driveFileId) {
-      try {
-        const { getPhotoStream } = await import('../services/googleDrive.service.js');
-        res.setHeader('Content-Type', photo.mimeType || 'image/jpeg');
-        const driveStream = await getPhotoStream(req.user, photo.driveFileId);
-        return driveStream.pipe(res);
-      } catch (driveErr) {
-        logger.error(`Failed to stream photo ${photo.driveFileId} from Drive:`, driveErr.message);
-        return res.status(502).json({ error: 'Failed to retrieve photo from Google Drive.' });
-      }
+    try {
+      const { getStorageProvider } = await import('../services/storage.service.js');
+      const provider = getStorageProvider(providerName);
+      res.setHeader('Content-Type', photo.mimeType || 'image/jpeg');
+      const stream = await provider.getFileStream(req.user, fileId);
+      return stream.pipe(res);
+    } catch (err) {
+      logger.error(`Failed to stream photo ${photo._id} via ${providerName}:`, err.message);
+      return res.status(502).json({ error: 'Failed to retrieve photo file from storage provider.' });
     }
-
-    return res.status(404).json({ error: 'Photo file not available.' });
   } catch (error) {
     next(error);
   }

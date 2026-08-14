@@ -9,6 +9,7 @@ import CreateRoom from './pages/CreateRoom';
 import JoinRoom from './pages/JoinRoom';
 import Room from './pages/Room';
 import Selfie from './pages/Selfie';
+import PublicJoin from './pages/PublicJoin';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,6 +52,7 @@ const AppRoutes = () => {
 
   return (
     <Routes>
+      <Route path="/join/:publicToken" element={<PublicJoin />} />
       <Route
         path="/login"
         element={user ? <Navigate to="/" replace /> : <Login />}

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import FormData from 'form-data';
 import * as driveService from '../services/googleDrive.service.js';
+import { getStorageProvider } from '../services/storage.service.js';
 import Room from '../models/Room.js';
 import Photo from '../models/Photo.js';
 import FaceEmbedding from '../models/FaceEmbedding.js';
@@ -49,7 +50,8 @@ export const getDriveFolders = async (req, res, next) => {
       return res.status(400).json({ error: 'Google Drive is not connected.' });
     }
 
-    const folders = await driveService.listFolders(req.user);
+    const driveProvider = getStorageProvider('google-drive');
+    const folders = await driveProvider.listFolders(req.user);
     res.json({ folders });
   } catch (error) {
     next(error);
@@ -76,6 +78,7 @@ export const selectDriveFolder = async (req, res, next) => {
 
     room.driveFolderId = folderId;
     room.driveFolderName = folderName || 'Selected Drive Folder';
+    room.storageProvider = 'google-drive';
     await room.save();
 
     res.json({ message: 'Drive folder linked successfully.', room });
@@ -100,17 +103,19 @@ export const indexDrivePhotos = async (req, res, next) => {
       return res.status(400).json({ error: 'Google Drive is not connected for your account.' });
     }
 
+    const driveProvider = getStorageProvider('google-drive');
+
     // 1. Query files in Drive folder
     logger.info(`Fetching photos from Drive folder ${room.driveFolderId}...`);
-    const driveFiles = await driveService.listPhotosInFolder(req.user, room.driveFolderId);
+    const driveFiles = await driveProvider.listFolderFiles(req.user, room.driveFolderId);
 
     if (driveFiles.length === 0) {
       return res.status(400).json({ error: 'No image files (JPEG, PNG, WebP, HEIC) found directly inside the selected Google Drive folder.' });
     }
 
     // 2. Identify unindexed photos
-    const existingPhotos = await Photo.find({ roomId: room._id }).select('driveFileId');
-    const existingDriveIds = new Set(existingPhotos.map((p) => p.driveFileId));
+    const existingPhotos = await Photo.find({ roomId: room._id });
+    const existingDriveIds = new Set(existingPhotos.map((p) => p.storage?.fileId || p.driveFileId));
 
     const unindexedDriveFiles = driveFiles.filter((f) => !existingDriveIds.has(f.id));
 
@@ -118,9 +123,13 @@ export const indexDrivePhotos = async (req, res, next) => {
       return res.json({ message: 'All photos in this Drive folder are already indexed.' });
     }
 
-    // 3. Mark room status as indexing & total photos
+    // 3. Mark room status & sync analytics
     room.status = 'indexing';
+    room.sync.status = 'syncing';
+    room.sync.lastSyncStartedAt = new Date();
     room.totalPhotos = existingPhotos.length + unindexedDriveFiles.length;
+    room.processing.total = room.totalPhotos;
+    room.processing.pending = unindexedDriveFiles.length;
     await room.save();
 
     // Respond immediately so HTTP proxy doesn't time out or cause ECONNRESET
@@ -138,20 +147,30 @@ export const indexDrivePhotos = async (req, res, next) => {
         try {
           logger.info(`Processing Drive file ${driveFile.name} (${driveFile.id})...`);
 
-          // Create Photo metadata document
+          // Create Photo metadata document with provider-agnostic storage schema
           const photo = await Photo.create({
             roomId: room._id,
-            driveFileId: driveFile.id,
-            fileName: driveFile.name,
-            mimeType: driveFile.mimeType || 'image/jpeg',
-            size: driveFile.size ? parseInt(driveFile.size) : 0,
-            width: driveFile.imageMediaMetadata?.width || null,
-            height: driveFile.imageMediaMetadata?.height || null,
+            storageProvider: 'google-drive',
+            storage: {
+              fileId: driveFile.id,
+              folderId: room.driveFolderId,
+              fileName: driveFile.name,
+              mimeType: driveFile.mimeType || 'image/jpeg',
+              size: driveFile.size ? parseInt(driveFile.size) : 0,
+              width: driveFile.imageMediaMetadata?.width || null,
+              height: driveFile.imageMediaMetadata?.height || null,
+            },
+            processing: {
+              status: 'downloading',
+            },
             indexed: false,
           });
 
-          // Download image binary directly into RAM buffer
-          const imageBuffer = await driveService.getPhotoBuffer(req.user, driveFile.id);
+          // Download image binary directly into RAM buffer using StorageService
+          const imageBuffer = await driveProvider.getFileBuffer(req.user, driveFile.id);
+
+          photo.processing.status = 'face_detection';
+          await photo.save();
 
           // Send buffer to Python face service via form-data
           const formData = new FormData();
@@ -186,9 +205,11 @@ export const indexDrivePhotos = async (req, res, next) => {
             facesCount += faces.length;
           }
 
-          // Mark photo as indexed
+          // Mark photo as completed
           photo.indexed = true;
           photo.facesFound = faces?.length || 0;
+          photo.processing.status = 'completed';
+          photo.processing.processedAt = new Date();
           await photo.save();
 
           processedCount++;
@@ -196,6 +217,7 @@ export const indexDrivePhotos = async (req, res, next) => {
           // Update room status
           await Room.findByIdAndUpdate(room._id, {
             processedPhotos: processedCount,
+            'processing.completed': processedCount,
             $inc: { facesDetected: faces?.length || 0 },
           });
         } catch (err) {
@@ -204,14 +226,21 @@ export const indexDrivePhotos = async (req, res, next) => {
       }
 
       // Mark room ready when background processing finishes
-      await Room.findByIdAndUpdate(room._id, { status: 'ready' });
+      const now = new Date();
+      await Room.findByIdAndUpdate(room._id, {
+        status: 'ready',
+        'sync.status': 'idle',
+        'sync.lastSyncedAt': now,
+        'sync.lastSyncCompletedAt': now,
+      });
       logger.success(`Google Drive indexing finished for room ${room._id}. Total faces detected: ${facesCount}`);
     })().catch((err) => {
       logger.error('Background Drive indexing error:', err);
-      Room.findByIdAndUpdate(room._id, { status: 'ready' }).catch(() => {});
+      Room.findByIdAndUpdate(room._id, { status: 'ready', 'sync.status': 'error', 'sync.error': err.message }).catch(() => {});
     });
 
   } catch (error) {
     next(error);
   }
 };
+

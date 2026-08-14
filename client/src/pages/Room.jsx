@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import ProcessingProgress from '../components/ProcessingProgress';
 import DriveFolderPicker from '../components/DriveFolderPicker';
+import QRCodeModal from '../components/QRCodeModal';
 import api from '../services/api';
 import {
   HiOutlineCloudArrowUp,
@@ -12,6 +13,7 @@ import {
   HiOutlineClipboardDocument,
   HiOutlineFolder,
   HiOutlineCheckCircle,
+  HiOutlineQrCode,
 } from 'react-icons/hi2';
 
 const Room = () => {
@@ -31,6 +33,7 @@ const Room = () => {
   const [isDriveConnected, setIsDriveConnected] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [indexingDrive, setIndexingDrive] = useState(false);
+  const [showQRCode, setShowQRCode] = useState(false);
 
   const isOwner = room && user && room.ownerId === user._id;
 
@@ -210,22 +213,34 @@ const Room = () => {
               )}
             </div>
 
-            {/* Room code */}
-            <button
-              onClick={copyCode}
-              className="flex items-center gap-3 bg-surface-800/50 rounded-xl px-5 py-3 hover:bg-surface-800 transition-colors cursor-pointer"
-            >
-              <div>
-                <p className="text-xs text-surface-200">Room Code</p>
-                <p className="text-2xl font-mono font-bold tracking-widest gradient-text">
-                  {room.code}
-                </p>
-              </div>
-              <HiOutlineClipboardDocument className="text-xl text-surface-200" />
-              {copied && (
-                <span className="text-xs text-green-400">Copied!</span>
-              )}
-            </button>
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setShowQRCode(true)}
+                className="flex items-center gap-2 bg-primary-600/20 border border-primary-500/40 rounded-xl px-4 py-3 hover:bg-primary-600/30 text-primary-300 transition-colors cursor-pointer"
+                title="View & Share Event QR Code"
+              >
+                <HiOutlineQrCode className="text-xl text-primary-400" />
+                <span className="text-xs font-semibold">Event QR Code</span>
+              </button>
+
+              {/* Room code */}
+              <button
+                onClick={copyCode}
+                className="flex items-center gap-3 bg-surface-800/50 rounded-xl px-5 py-3 hover:bg-surface-800 transition-colors cursor-pointer border border-white/5"
+              >
+                <div>
+                  <p className="text-xs text-surface-200">Room Code</p>
+                  <p className="text-2xl font-mono font-bold tracking-widest gradient-text">
+                    {room.code}
+                  </p>
+                </div>
+                <HiOutlineClipboardDocument className="text-xl text-surface-200" />
+                {copied && (
+                  <span className="text-xs text-green-400">Copied!</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -395,6 +410,14 @@ const Room = () => {
             setSuccessMsg(`Linked folder: ${folder.name}`);
           }}
           onClose={() => setShowFolderPicker(false)}
+        />
+      )}
+
+      {/* QR Code Modal */}
+      {showQRCode && (
+        <QRCodeModal
+          room={room}
+          onClose={() => setShowQRCode(false)}
         />
       )}
     </div>
