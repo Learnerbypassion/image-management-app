@@ -93,6 +93,18 @@ const Room = () => {
     return () => clearInterval(interval);
   }, [room?.status, roomId]);
 
+  const handleToggleStorageProvider = async (provider) => {
+    try {
+      const { data } = await api.patch(`/rooms/${roomId}/storage`, {
+        storageProvider: provider,
+      });
+      setRoom(data.room);
+      setSuccessMsg(`Storage provider switched to ${provider === 'google-drive' ? 'Google Drive' : 'Local Storage'}.`);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to update storage provider.');
+    }
+  };
+
   const handleConnectDrive = async () => {
     try {
       const { data } = await api.get('/drive/connect');
@@ -211,13 +223,40 @@ const Room = () => {
                 <p className="text-surface-200 text-sm mt-1">{room.description}</p>
               )}
 
-              {/* Linked Drive Folder Badge */}
-              {room.driveFolderId && (
-                <div className="inline-flex items-center gap-2 mt-3 bg-primary-600/20 border border-primary-500/40 rounded-lg px-3 py-1.5 text-xs text-primary-300">
-                  <HiOutlineFolder className="text-primary-400 text-sm" />
-                  <span>Drive Folder: <strong>{room.driveFolderName || room.driveFolderId}</strong></span>
-                </div>
-              )}
+              {/* Storage Provider & Linked Drive Folder Badge */}
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                {isOwner && (
+                  <div className="inline-flex bg-surface-800/80 p-1 rounded-xl border border-white/10 text-xs">
+                    <button
+                      onClick={() => handleToggleStorageProvider('local')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                        room.storageProvider === 'local'
+                          ? 'bg-primary-600 text-white font-semibold'
+                          : 'text-surface-400 hover:text-white'
+                      }`}
+                    >
+                      Local
+                    </button>
+                    <button
+                      onClick={() => handleToggleStorageProvider('google-drive')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                        room.storageProvider === 'google-drive'
+                          ? 'bg-emerald-600 text-white font-semibold'
+                          : 'text-surface-400 hover:text-white'
+                      }`}
+                    >
+                      Google Drive
+                    </button>
+                  </div>
+                )}
+
+                {room.storageProvider === 'google-drive' && room.driveFolderId && (
+                  <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-1 text-xs text-emerald-300">
+                    <HiOutlineFolder className="text-emerald-400 text-sm" />
+                    <span>Folder: <strong>{room.driveFolderName || room.driveFolderId}</strong></span>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Action buttons */}
@@ -283,8 +322,8 @@ const Room = () => {
 
         {/* Actions Section */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-          {/* Option A: Connect Google Drive (owner only) */}
-          {isOwner && !isDriveConnected && (
+          {/* Option A: Connect Google Drive (owner only, in Google Drive mode) */}
+          {isOwner && (room.storageProvider === 'google-drive' || !room.storageProvider) && !isDriveConnected && (
             <button
               onClick={handleConnectDrive}
               className="glass rounded-2xl p-6 card-hover text-center cursor-pointer group"
@@ -299,8 +338,8 @@ const Room = () => {
             </button>
           )}
 
-          {/* Option B: Select Drive Folder (owner only, when Drive is connected) */}
-          {isOwner && isDriveConnected && (
+          {/* Option B: Select Drive Folder (owner only, in Google Drive mode when Drive is connected) */}
+          {isOwner && (room.storageProvider === 'google-drive' || !room.storageProvider) && isDriveConnected && (
             <button
               onClick={() => setShowFolderPicker(true)}
               className="glass rounded-2xl p-6 card-hover text-center cursor-pointer group"
@@ -317,8 +356,8 @@ const Room = () => {
             </button>
           )}
 
-          {/* Option C: Index Google Drive Photos (canUpload + Drive connected + folder linked) */}
-          {canUpload && isDriveConnected && room.driveFolderId && (
+          {/* Option C: Index Google Drive Photos (in Google Drive mode when folder is linked) */}
+          {canUpload && (room.storageProvider === 'google-drive' || !room.storageProvider) && isDriveConnected && room.driveFolderId && (
             <button
               onClick={handleIndexDrive}
               disabled={indexingDrive || room.status === 'indexing'}
@@ -362,8 +401,8 @@ const Room = () => {
             </label>
           )}
 
-          {/* Option E: Start Local Indexing (canUpload, when local photos exist) */}
-          {canUpload && room.totalPhotos > 0 && !room.driveFolderId && (
+          {/* Option E: Start Local Indexing (canUpload, in Local storage mode OR when local photos exist) */}
+          {canUpload && (room.storageProvider === 'local' || (room.totalPhotos > 0 && !room.driveFolderId)) && (
             <button
               onClick={handleIndex}
               disabled={indexing || room.status === 'indexing'}
@@ -373,10 +412,10 @@ const Room = () => {
                 <HiOutlineBolt className="text-white text-2xl" />
               </div>
               <h3 className="text-lg font-semibold text-white">
-                {indexing ? 'Indexing...' : 'Start Indexing'}
+                {indexing ? 'Indexing Local Photos...' : 'Index Local Photos'}
               </h3>
               <p className="text-sm text-surface-200 mt-1">
-                Detect faces in uploaded photos
+                Detect faces in uploaded local photos
               </p>
             </button>
           )}

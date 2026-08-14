@@ -4,7 +4,7 @@ import { generateRoomCode } from '../utils/crypto.js';
 // POST /api/rooms
 export const createRoom = async (req, res, next) => {
   try {
-    const { name, organization, description } = req.body;
+    const { name, organization, description, storageProvider, driveFolderId, driveFolderName } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Room name is required.' });
@@ -29,6 +29,9 @@ export const createRoom = async (req, res, next) => {
       code,
       organization: organization || '',
       description: description || '',
+      storageProvider: storageProvider || 'google-drive',
+      driveFolderId: driveFolderId || null,
+      driveFolderName: driveFolderName || null,
       ownerId: req.userId,
       members: [{
         userId: req.userId,
@@ -283,6 +286,33 @@ export const leaveRoom = async (req, res, next) => {
     await room.save();
 
     res.json({ message: 'You have left the room.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// PATCH /api/rooms/:roomId/storage — Update room storage settings (owner only)
+export const updateRoomStorage = async (req, res, next) => {
+  try {
+    if (!req.isRoomOwner) {
+      return res.status(403).json({ error: 'Only room owner can update storage settings.' });
+    }
+
+    const { storageProvider, driveFolderId, driveFolderName } = req.body;
+    const room = req.room;
+
+    if (storageProvider) {
+      room.storageProvider = storageProvider;
+    }
+    if (driveFolderId !== undefined) {
+      room.driveFolderId = driveFolderId;
+    }
+    if (driveFolderName !== undefined) {
+      room.driveFolderName = driveFolderName;
+    }
+
+    await room.save();
+    res.json({ message: 'Storage settings updated successfully.', room });
   } catch (error) {
     next(error);
   }

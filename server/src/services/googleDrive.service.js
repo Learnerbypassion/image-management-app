@@ -4,20 +4,25 @@ import { encryptToken, decryptToken } from '../utils/crypto.js';
 import User from '../models/User.js';
 import logger from '../utils/logger.js';
 
-// Scopes required for Phase 4: read-only access to Drive metadata and file content
+// Full Drive scope required to create/upload photos into arbitrary existing Drive folders
 const SCOPES = [
+  'https://www.googleapis.com/auth/drive',
+  'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/drive.metadata.readonly',
 ];
 
 /**
  * Generate Google OAuth2 consent URL
+ * @param {string} [state] - Optional state payload (e.g. userId) passed through OAuth flow
  */
-export const getAuthUrl = () => {
+export const getAuthUrl = (state) => {
   const oauth2Client = createOAuth2Client();
   return oauth2Client.generateAuthUrl({
     access_type: 'offline', // Requests refresh token
     prompt: 'consent',     // Forces refresh token emission on approval
     scope: SCOPES,
+    state: state || undefined,
   });
 };
 
@@ -94,7 +99,7 @@ export const listFolders = async (user) => {
 
   const response = await drive.files.list({
     q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-    fields: 'files(id, name, modifiedTime)',
+    fields: 'files(id, name, modifiedTime, parents)',
     pageSize: 100,
     orderBy: 'folder,name',
   });

@@ -13,7 +13,13 @@ import roomAccess from '../middleware/roomAccess.js';
 const router = Router();
 
 // OAuth Callback handler (redirect from Google)
-router.get('/callback', auth, handleDriveCallback);
+router.get('/callback', (req, res, next) => {
+  auth(req, res, () => {
+    handleDriveCallback(req, res, next);
+  }).catch(() => {
+    handleDriveCallback(req, res, next);
+  });
+});
 
 // Authenticated Drive endpoints
 router.get('/connect', auth, getConnectUrl);

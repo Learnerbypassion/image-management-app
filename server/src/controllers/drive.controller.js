@@ -11,7 +11,7 @@ import logger from '../utils/logger.js';
 // GET /api/drive/connect
 export const getConnectUrl = async (req, res, next) => {
   try {
-    const authUrl = driveService.getAuthUrl();
+    const authUrl = driveService.getAuthUrl(req.userId?.toString());
     res.json({ url: authUrl });
   } catch (error) {
     next(error);
@@ -21,12 +21,17 @@ export const getConnectUrl = async (req, res, next) => {
 // GET /api/drive/callback
 export const handleDriveCallback = async (req, res, next) => {
   try {
-    const { code } = req.query;
+    const { code, state } = req.query;
     if (!code) {
       return res.status(400).json({ error: 'Authorization code is missing.' });
     }
 
-    await driveService.handleCallback(code, req.userId);
+    const userId = req.userId || state;
+    if (!userId) {
+      return res.status(401).json({ error: 'User context is missing for OAuth callback.' });
+    }
+
+    await driveService.handleCallback(code, userId);
 
     // Redirect user back to frontend client
     res.redirect(`${env.CLIENT_URL}/?driveConnected=true`);
@@ -107,7 +112,7 @@ export const indexDrivePhotos = async (req, res, next) => {
 
     // 1. Query files in Drive folder
     logger.info(`Fetching photos from Drive folder ${room.driveFolderId}...`);
-    const driveFiles = await driveProvider.listFolderFiles(req.user, room.driveFolderId);
+    const driveFiles = await driveProvider.listFiles(req.user, room.driveFolderId);
 
     if (driveFiles.length === 0) {
       return res.status(400).json({ error: 'No image files (JPEG, PNG, WebP, HEIC) found directly inside the selected Google Drive folder.' });
@@ -118,8 +123,13 @@ export const indexDrivePhotos = async (req, res, next) => {
     const existingDriveIds = new Set(existingPhotos.map((p) => p.storage?.fileId || p.driveFileId));
 
     const unindexedDriveFiles = driveFiles.filter((f) => !existingDriveIds.has(f.id));
+    const alreadyIndexedCount = driveFiles.length - unindexedDriveFiles.length;
 
     if (unindexedDriveFiles.length === 0) {
+      room.status = 'ready';
+      room.totalPhotos = driveFiles.length;
+      room.processedPhotos = driveFiles.length;
+      await room.save();
       return res.json({ message: 'All photos in this Drive folder are already indexed.' });
     }
 
@@ -127,8 +137,9 @@ export const indexDrivePhotos = async (req, res, next) => {
     room.status = 'indexing';
     room.sync.status = 'syncing';
     room.sync.lastSyncStartedAt = new Date();
-    room.totalPhotos = existingPhotos.length + unindexedDriveFiles.length;
-    room.processing.total = room.totalPhotos;
+    room.totalPhotos = driveFiles.length;
+    room.processedPhotos = alreadyIndexedCount;
+    room.processing.total = driveFiles.length;
     room.processing.pending = unindexedDriveFiles.length;
     await room.save();
 
@@ -140,7 +151,7 @@ export const indexDrivePhotos = async (req, res, next) => {
 
     // 4. Background processing (Async job execution)
     (async () => {
-      let processedCount = room.processedPhotos || 0;
+      let processedCount = alreadyIndexedCount;
       let facesCount = 0;
 
       for (const driveFile of unindexedDriveFiles) {
@@ -229,6 +240,7 @@ export const indexDrivePhotos = async (req, res, next) => {
       const now = new Date();
       await Room.findByIdAndUpdate(room._id, {
         status: 'ready',
+        processedPhotos: driveFiles.length,
         'sync.status': 'idle',
         'sync.lastSyncedAt': now,
         'sync.lastSyncCompletedAt': now,

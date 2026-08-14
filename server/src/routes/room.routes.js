@@ -9,6 +9,7 @@ import {
   updateMember,
   removeMember,
   leaveRoom,
+  updateRoomStorage,
   deleteRoom,
 } from '../controllers/room.controller.js';
 import auth from '../middleware/auth.js';
@@ -28,6 +29,7 @@ router.post('/join', joinRoom);
 
 // Room-scoped routes (require room membership)
 router.get('/:roomId', roomAccess, getRoom);
+router.patch('/:roomId/storage', roomAccess, updateRoomStorage);
 router.delete('/:roomId', roomAccess, deleteRoom);
 
 // Membership management (owner only for GET/PATCH/DELETE members)
