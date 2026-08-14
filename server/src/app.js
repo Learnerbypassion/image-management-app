@@ -17,6 +17,7 @@ import photoRoutes from './routes/photo.routes.js';
 import faceRoutes from './routes/face.routes.js';
 import singlePhotoRoutes from './routes/singlePhoto.routes.js';
 import driveRoutes from './routes/drive.routes.js';
+import uploadRequestRoutes from './routes/uploadRequest.routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -51,6 +52,7 @@ app.use('/api/rooms', roomRoutes);
 app.use('/api/rooms', photoRoutes);
 app.use('/api/rooms', faceRoutes);
 app.use('/api/photos', singlePhotoRoutes);
+app.use('/api', uploadRequestRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {

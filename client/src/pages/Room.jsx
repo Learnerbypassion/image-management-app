@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import ProcessingProgress from '../components/ProcessingProgress';
 import DriveFolderPicker from '../components/DriveFolderPicker';
 import QRCodeModal from '../components/QRCodeModal';
+import PhotographerStatus from '../components/PhotographerStatus';
+import UploadRequestsPanel from '../components/UploadRequestsPanel';
 import api from '../services/api';
 import {
   HiOutlineCloudArrowUp,
@@ -35,7 +37,12 @@ const Room = () => {
   const [indexingDrive, setIndexingDrive] = useState(false);
   const [showQRCode, setShowQRCode] = useState(false);
 
+  // Photographer status (updated by PhotographerStatus component)
+  const [photographerStatus, setPhotographerStatus] = useState(null);
+
   const isOwner = room && user && room.ownerId === user._id;
+  // canUpload: owner OR approved photographer
+  const canUpload = isOwner || photographerStatus?.canUpload;
 
   const fetchRoom = useCallback(async () => {
     try {
@@ -244,6 +251,14 @@ const Room = () => {
           </div>
         </div>
 
+        {/* Photographer Status Banner (non-owner members) */}
+        {!isOwner && (
+          <PhotographerStatus
+            roomId={roomId}
+            onStatusChange={setPhotographerStatus}
+          />
+        )}
+
         {/* Status messages */}
         {successMsg && (
           <div className="bg-green-500/10 border border-green-500/30 rounded-xl px-4 py-3 mb-6">
@@ -302,8 +317,8 @@ const Room = () => {
             </button>
           )}
 
-          {/* Option C: Index Google Drive Photos (owner only, when folder is linked) */}
-          {isOwner && isDriveConnected && room.driveFolderId && (
+          {/* Option C: Index Google Drive Photos (canUpload + Drive connected + folder linked) */}
+          {canUpload && isDriveConnected && room.driveFolderId && (
             <button
               onClick={handleIndexDrive}
               disabled={indexingDrive || room.status === 'indexing'}
@@ -321,8 +336,8 @@ const Room = () => {
             </button>
           )}
 
-          {/* Option D: Local Upload Photos (owner fallback) */}
-          {isOwner && (
+          {/* Option D: Local Upload Photos (canUpload) */}
+          {canUpload && (
             <label className="glass rounded-2xl p-6 card-hover cursor-pointer group text-center">
               <input
                 type="file"
@@ -347,8 +362,8 @@ const Room = () => {
             </label>
           )}
 
-          {/* Option E: Start Local Indexing (owner only, when local photos exist) */}
-          {isOwner && room.totalPhotos > 0 && !room.driveFolderId && (
+          {/* Option E: Start Local Indexing (canUpload, when local photos exist) */}
+          {canUpload && room.totalPhotos > 0 && !room.driveFolderId && (
             <button
               onClick={handleIndex}
               disabled={indexing || room.status === 'indexing'}
@@ -382,6 +397,13 @@ const Room = () => {
             </Link>
           )}
         </div>
+
+        {/* Upload Requests Panel (owner only) */}
+        {isOwner && (
+          <div className="mb-8">
+            <UploadRequestsPanel roomId={roomId} />
+          </div>
+        )}
 
         {/* Delete Room (owner only) */}
         {isOwner && (

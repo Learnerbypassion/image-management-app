@@ -90,8 +90,8 @@ export const selectDriveFolder = async (req, res, next) => {
 // POST /api/rooms/:roomId/index-drive
 export const indexDrivePhotos = async (req, res, next) => {
   try {
-    if (!req.isRoomOwner) {
-      return res.status(403).json({ error: 'Only the room owner can start Drive indexing.' });
+    if (!req.canUpload) {
+      return res.status(403).json({ error: 'You do not have permission to start Drive indexing.' });
     }
 
     const room = req.room;

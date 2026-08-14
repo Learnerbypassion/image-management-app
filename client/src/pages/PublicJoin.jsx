@@ -189,7 +189,7 @@ const PublicJoin = () => {
 
       {/* Match Results Gallery */}
       {matchResult && (
-        <div className="animate-fade-in-up">
+        <div className="animate-fade-in-up pb-32">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-2xl font-bold text-white flex items-center gap-2">
               <span>Your Matched Photos</span>

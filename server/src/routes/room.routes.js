@@ -5,6 +5,10 @@ import {
   getRoom,
   getRoomByToken,
   joinRoom,
+  getRoomMembers,
+  updateMember,
+  removeMember,
+  leaveRoom,
   deleteRoom,
 } from '../controllers/room.controller.js';
 import auth from '../middleware/auth.js';
@@ -21,7 +25,15 @@ router.use(auth);
 router.post('/', createRoom);
 router.get('/', getMyRooms);
 router.post('/join', joinRoom);
+
+// Room-scoped routes (require room membership)
 router.get('/:roomId', roomAccess, getRoom);
 router.delete('/:roomId', roomAccess, deleteRoom);
+
+// Membership management (owner only for GET/PATCH/DELETE members)
+router.get('/:roomId/members', roomAccess, getRoomMembers);
+router.patch('/:roomId/members/:userId', roomAccess, updateMember);
+router.delete('/:roomId/members/:userId', roomAccess, removeMember);
+router.post('/:roomId/leave', roomAccess, leaveRoom);
 
 export default router;

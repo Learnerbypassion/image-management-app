@@ -61,27 +61,27 @@ const SelectiveDownload = ({ selectedPhotos, totalCount, onClearSelection, onSel
   };
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-fade-in-up w-11/12 max-w-xl">
-      <div className="glass rounded-2xl p-4 border border-primary-500/40 shadow-2xl bg-surface-900/90 backdrop-blur-xl flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary-600/30 text-primary-400 flex items-center justify-center font-bold">
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in-up w-[92vw] max-w-2xl">
+      <div className="rounded-2xl p-3 sm:p-4 border border-primary-500/40 shadow-[0_10px_40px_rgba(0,0,0,0.6)] bg-surface-900/95 backdrop-blur-2xl flex items-center justify-between gap-3 text-white">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-primary-600/30 border border-primary-500/40 text-primary-300 flex items-center justify-center font-bold flex-shrink-0 text-sm">
             {selectedPhotos.length}
           </div>
-          <div>
-            <p className="text-white text-sm font-semibold">
+          <div className="min-w-0">
+            <p className="text-white text-sm font-semibold truncate">
               {selectedPhotos.length} photo{selectedPhotos.length > 1 ? 's' : ''} selected
             </p>
-            <p className="text-surface-200 text-xs">
-              {selectedPhotos.length <= 10 ? 'Client-side ZIP' : 'Server-side ZIP Stream'}
+            <p className="text-surface-400 text-xs truncate hidden sm:block">
+              {selectedPhotos.length <= 10 ? 'Client-side ZIP packaging' : 'Server-side ZIP stream'}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {totalCount > selectedPhotos.length && (
             <button
               onClick={onSelectAll}
-              className="px-3 py-2 rounded-xl text-xs font-semibold glass text-surface-200 hover:text-white transition-colors cursor-pointer"
+              className="px-3 py-2 rounded-xl text-xs font-semibold bg-surface-800 hover:bg-surface-700 text-surface-200 hover:text-white transition-colors cursor-pointer border border-white/10 hidden sm:inline-flex"
             >
               Select All ({totalCount})
             </button>
@@ -89,7 +89,7 @@ const SelectiveDownload = ({ selectedPhotos, totalCount, onClearSelection, onSel
 
           <button
             onClick={onClearSelection}
-            className="p-2 rounded-xl text-surface-400 hover:text-white glass transition-colors cursor-pointer"
+            className="p-2 rounded-xl text-surface-400 hover:text-white bg-surface-800/80 hover:bg-surface-700 transition-colors cursor-pointer border border-white/10"
             title="Deselect all"
           >
             <HiOutlineXMark className="text-lg" />
@@ -98,16 +98,16 @@ const SelectiveDownload = ({ selectedPhotos, totalCount, onClearSelection, onSel
           <button
             onClick={handleDownloadZip}
             disabled={downloading}
-            className="btn-primary px-5 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-primary-900/40"
+            className="btn-primary px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white cursor-pointer disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-primary-900/40 whitespace-nowrap"
           >
             {downloading ? (
               <>
-                <div className="spinner" style={{ width: 18, height: 18 }} />
+                <div className="spinner" style={{ width: 16, height: 16 }} />
                 <span className="text-xs">{progressText || 'Preparing...'}</span>
               </>
             ) : (
               <>
-                <HiOutlineArchiveBox className="text-lg" />
+                <HiOutlineArchiveBox className="text-base sm:text-lg" />
                 <span>Download .ZIP</span>
               </>
             )}

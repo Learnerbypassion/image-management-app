@@ -108,7 +108,7 @@ const Selfie = () => {
 
   // Results
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
+    <div className="max-w-6xl mx-auto px-4 py-8 pb-32">
       <div className="animate-fade-in-up">
         <div className="text-center mb-8">
           {count > 0 ? (
@@ -134,16 +134,16 @@ const Selfie = () => {
 
         <PhotoGrid photos={photos} />
 
-        <div className="flex justify-center gap-4 mt-8">
+        <div className="flex flex-wrap justify-center gap-4 mt-12 mb-6">
           <button
             onClick={() => setStep('camera')}
-            className="px-6 py-3 rounded-xl text-sm font-semibold text-surface-200 glass hover:text-white transition-colors cursor-pointer"
+            className="px-6 py-3 rounded-xl text-sm font-semibold text-surface-200 glass hover:text-white transition-colors cursor-pointer border border-white/10"
           >
             Try Another Selfie
           </button>
           <button
             onClick={() => navigate(`/room/${roomId}`)}
-            className="btn-primary px-6 py-3 rounded-xl text-sm font-semibold text-white cursor-pointer"
+            className="btn-primary px-6 py-3 rounded-xl text-sm font-semibold text-white cursor-pointer shadow-lg shadow-primary-900/30"
           >
             Back to Room
           </button>

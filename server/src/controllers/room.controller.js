@@ -30,7 +30,12 @@ export const createRoom = async (req, res, next) => {
       organization: organization || '',
       description: description || '',
       ownerId: req.userId,
-      members: [req.userId],
+      members: [{
+        userId: req.userId,
+        role: 'OWNER',
+        status: 'ACTIVE',
+        uploadPermission: 'APPROVED',
+      }],
     });
 
     res.status(201).json({ room });
@@ -45,7 +50,7 @@ export const getMyRooms = async (req, res, next) => {
     const rooms = await Room.find({
       $or: [
         { ownerId: req.userId },
-        { members: req.userId },
+        { 'members.userId': req.userId, 'members.status': 'ACTIVE' },
       ],
     }).sort({ createdAt: -1 });
 
@@ -75,16 +80,30 @@ export const joinRoom = async (req, res, next) => {
       return res.status(404).json({ error: 'No room found with that code.' });
     }
 
-    // Check if already a member
-    const isMember = room.members.some(
-      (memberId) => memberId.toString() === req.userId.toString()
+    const userId = req.userId.toString();
+
+    // Check if already an active member
+    const existing = room.members.find(
+      (m) => m.userId.toString() === userId
     );
 
-    if (!isMember) {
-      room.members.push(req.userId);
-      await room.save();
+    if (existing) {
+      if (existing.status === 'ACTIVE') {
+        return res.json({ room, message: 'You are already a member of this room.' });
+      }
+      // Re-activate if previously REMOVED or LEFT
+      existing.status = 'ACTIVE';
+      existing.joinedAt = new Date();
+    } else {
+      room.members.push({
+        userId: req.userId,
+        role: 'PARTICIPANT',
+        status: 'ACTIVE',
+        uploadPermission: 'DENIED',
+      });
     }
 
+    await room.save();
     res.json({ room });
   } catch (error) {
     next(error);
@@ -119,6 +138,151 @@ export const getRoomByToken = async (req, res, next) => {
         status: room.status,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/rooms/:roomId/members — List room members (owner only)
+export const getRoomMembers = async (req, res, next) => {
+  try {
+    if (!req.isRoomOwner) {
+      return res.status(403).json({ error: 'Only the room owner can view members.' });
+    }
+
+    const room = await Room.findById(req.room._id).populate('members.userId', 'name email profileImage');
+
+    const members = room.members.map((m) => ({
+      userId: m.userId._id || m.userId,
+      name: m.userId.name || null,
+      email: m.userId.email || null,
+      profileImage: m.userId.profileImage || null,
+      role: m.role,
+      status: m.status,
+      uploadPermission: m.uploadPermission,
+      joinedAt: m.joinedAt,
+    }));
+
+    res.json({ members });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// PATCH /api/rooms/:roomId/members/:userId — Update member role/permissions (owner only)
+export const updateMember = async (req, res, next) => {
+  try {
+    if (!req.isRoomOwner) {
+      return res.status(403).json({ error: 'Only the room owner can manage members.' });
+    }
+
+    const { userId } = req.params;
+    const { role, uploadPermission } = req.body;
+
+    const room = req.room;
+    const member = room.members.find(
+      (m) => m.userId.toString() === userId && m.status === 'ACTIVE'
+    );
+
+    if (!member) {
+      return res.status(404).json({ error: 'Active member not found.' });
+    }
+
+    // Cannot modify the owner's own membership
+    if (member.role === 'OWNER') {
+      return res.status(400).json({ error: 'Cannot modify the room owner\'s membership.' });
+    }
+
+    // Update role if provided
+    if (role && ['PHOTOGRAPHER', 'PARTICIPANT'].includes(role)) {
+      member.role = role;
+
+      // When promoting to PHOTOGRAPHER, set uploadPermission to PENDING
+      // until the owner explicitly approves. When demoting to PARTICIPANT,
+      // revoke upload permission.
+      if (role === 'PHOTOGRAPHER' && !uploadPermission) {
+        member.uploadPermission = 'PENDING';
+      } else if (role === 'PARTICIPANT') {
+        member.uploadPermission = 'DENIED';
+      }
+    }
+
+    // Update upload permission if provided (only meaningful for PHOTOGRAPHER)
+    if (uploadPermission && ['APPROVED', 'PENDING', 'DENIED'].includes(uploadPermission)) {
+      member.uploadPermission = uploadPermission;
+    }
+
+    await room.save();
+
+    res.json({
+      message: 'Member updated successfully.',
+      member: {
+        userId: member.userId,
+        role: member.role,
+        status: member.status,
+        uploadPermission: member.uploadPermission,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// DELETE /api/rooms/:roomId/members/:userId — Remove member (owner only)
+export const removeMember = async (req, res, next) => {
+  try {
+    if (!req.isRoomOwner) {
+      return res.status(403).json({ error: 'Only the room owner can remove members.' });
+    }
+
+    const { userId } = req.params;
+    const room = req.room;
+
+    const member = room.members.find(
+      (m) => m.userId.toString() === userId && m.status === 'ACTIVE'
+    );
+
+    if (!member) {
+      return res.status(404).json({ error: 'Active member not found.' });
+    }
+
+    if (member.role === 'OWNER') {
+      return res.status(400).json({ error: 'Cannot remove the room owner.' });
+    }
+
+    member.status = 'REMOVED';
+    member.uploadPermission = 'DENIED';
+    await room.save();
+
+    res.json({ message: 'Member removed successfully.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /api/rooms/:roomId/leave — Leave a room (self)
+export const leaveRoom = async (req, res, next) => {
+  try {
+    const room = req.room;
+    const userId = req.userId.toString();
+
+    if (req.isRoomOwner) {
+      return res.status(400).json({ error: 'Room owner cannot leave. Transfer ownership or delete the room instead.' });
+    }
+
+    const member = room.members.find(
+      (m) => m.userId.toString() === userId && m.status === 'ACTIVE'
+    );
+
+    if (!member) {
+      return res.status(404).json({ error: 'You are not an active member of this room.' });
+    }
+
+    member.status = 'LEFT';
+    member.uploadPermission = 'DENIED';
+    await room.save();
+
+    res.json({ message: 'You have left the room.' });
   } catch (error) {
     next(error);
   }

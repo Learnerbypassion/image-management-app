@@ -11,8 +11,8 @@ import logger from '../utils/logger.js';
 // POST /api/rooms/:roomId/photos — Upload photos (Phase 2: local upload)
 export const uploadPhotos = async (req, res, next) => {
   try {
-    if (!req.isRoomOwner) {
-      return res.status(403).json({ error: 'Only the room owner can upload photos.' });
+    if (!req.canUpload) {
+      return res.status(403).json({ error: 'You do not have upload permission for this room.' });
     }
 
     if (!req.files || req.files.length === 0) {
@@ -110,8 +110,8 @@ export const getPhoto = async (req, res, next) => {
 // POST /api/rooms/:roomId/index — Trigger face indexing
 export const indexPhotos = async (req, res, next) => {
   try {
-    if (!req.isRoomOwner) {
-      return res.status(403).json({ error: 'Only the room owner can start indexing.' });
+    if (!req.canUpload) {
+      return res.status(403).json({ error: 'You do not have permission to start indexing.' });
     }
 
     const unindexedPhotos = await Photo.find({

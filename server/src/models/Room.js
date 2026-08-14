@@ -96,9 +96,35 @@ const roomSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  // Structured membership with roles and upload permissions
   members: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    role: {
+      type: String,
+      enum: ['OWNER', 'PHOTOGRAPHER', 'PARTICIPANT'],
+      default: 'PARTICIPANT',
+    },
+    status: {
+      type: String,
+      enum: ['ACTIVE', 'REMOVED', 'LEFT'],
+      default: 'ACTIVE',
+    },
+    // Upload permission — only relevant for PHOTOGRAPHER role
+    // OWNER always has upload rights; PARTICIPANT never does
+    uploadPermission: {
+      type: String,
+      enum: ['APPROVED', 'PENDING', 'DENIED'],
+      default: 'DENIED',
+    },
+    joinedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    _id: false,
   }],
 }, {
   timestamps: true,
@@ -115,6 +141,7 @@ roomSchema.pre('save', function (next) {
 });
 
 roomSchema.index({ ownerId: 1 });
+roomSchema.index({ 'members.userId': 1 });
 
 const Room = mongoose.model('Room', roomSchema);
 
