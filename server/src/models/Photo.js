@@ -32,8 +32,23 @@ const photoSchema = new mongoose.Schema({
   processing: {
     status: {
       type: String,
-      enum: ['pending', 'downloading', 'face_detection', 'embedding', 'completed', 'failed'],
-      default: 'pending',
+      enum: [
+        'DISCOVERED',
+        'UPLOADING',
+        'UPLOADED',
+        'QUEUED',
+        'PROCESSING',
+        'INDEXED',
+        'FAILED',
+        // Legacy fallback values
+        'pending',
+        'downloading',
+        'face_detection',
+        'embedding',
+        'completed',
+        'failed',
+      ],
+      default: 'DISCOVERED',
       index: true,
     },
     processedAt: { type: Date, default: null },

@@ -7,6 +7,7 @@ import Photo from '../models/Photo.js';
 import FaceEmbedding from '../models/FaceEmbedding.js';
 import env from '../config/env.js';
 import logger from '../utils/logger.js';
+import { processPhotoIndexingQueue } from '../services/indexing.queue.js';
 
 // GET /api/drive/connect
 export const getConnectUrl = async (req, res, next) => {
@@ -133,124 +134,43 @@ export const indexDrivePhotos = async (req, res, next) => {
       return res.json({ message: 'All photos in this Drive folder are already indexed.' });
     }
 
-    // 3. Mark room status & sync analytics
+    // 3. Create Photo records for DISCOVERED drive files with status UPLOADED
+    for (const driveFile of unindexedDriveFiles) {
+      await Photo.create({
+        roomId: room._id,
+        storageProvider: 'google-drive',
+        storage: {
+          fileId: driveFile.id,
+          folderId: room.driveFolderId,
+          fileName: driveFile.name,
+          mimeType: driveFile.mimeType || 'image/jpeg',
+          size: driveFile.size ? parseInt(driveFile.size) : 0,
+          width: driveFile.imageMediaMetadata?.width || null,
+          height: driveFile.imageMediaMetadata?.height || null,
+        },
+        processing: {
+          status: 'UPLOADED',
+        },
+        indexed: false,
+      });
+    }
+
+    // 4. Update room status
     room.status = 'indexing';
     room.sync.status = 'syncing';
     room.sync.lastSyncStartedAt = new Date();
     room.totalPhotos = driveFiles.length;
     room.processedPhotos = alreadyIndexedCount;
-    room.processing.total = driveFiles.length;
-    room.processing.pending = unindexedDriveFiles.length;
     await room.save();
 
-    // Respond immediately so HTTP proxy doesn't time out or cause ECONNRESET
+    // Respond immediately to client (Upload/Discovery Job complete!)
     res.json({
       message: `Indexing started for ${unindexedDriveFiles.length} Drive photo(s).`,
       total: unindexedDriveFiles.length,
     });
 
-    // 4. Background processing (Async job execution)
-    (async () => {
-      let processedCount = alreadyIndexedCount;
-      let facesCount = 0;
-
-      for (const driveFile of unindexedDriveFiles) {
-        try {
-          logger.info(`Processing Drive file ${driveFile.name} (${driveFile.id})...`);
-
-          // Create Photo metadata document with provider-agnostic storage schema
-          const photo = await Photo.create({
-            roomId: room._id,
-            storageProvider: 'google-drive',
-            storage: {
-              fileId: driveFile.id,
-              folderId: room.driveFolderId,
-              fileName: driveFile.name,
-              mimeType: driveFile.mimeType || 'image/jpeg',
-              size: driveFile.size ? parseInt(driveFile.size) : 0,
-              width: driveFile.imageMediaMetadata?.width || null,
-              height: driveFile.imageMediaMetadata?.height || null,
-            },
-            processing: {
-              status: 'downloading',
-            },
-            indexed: false,
-          });
-
-          // Download image binary directly into RAM buffer using StorageService
-          const imageBuffer = await driveProvider.getFileBuffer(req.user, driveFile.id);
-
-          photo.processing.status = 'face_detection';
-          await photo.save();
-
-          // Send buffer to Python face service via form-data
-          const formData = new FormData();
-          formData.append('file', imageBuffer, {
-            filename: driveFile.name,
-            contentType: driveFile.mimeType || 'image/jpeg',
-          });
-
-          const response = await axios.post(
-            `${env.FACE_SERVICE_URL}/detect`,
-            formData,
-            {
-              headers: formData.getHeaders(),
-              timeout: 60000,
-            }
-          );
-
-          const { faces } = response.data;
-
-          // Store face embeddings in MongoDB
-          if (faces && faces.length > 0) {
-            const embeddings = faces.map((face) => ({
-              roomId: room._id,
-              photoId: photo._id,
-              embedding: face.embedding,
-              boundingBox: face.bounding_box,
-              qualityScore: face.quality_score,
-              confidence: face.confidence,
-            }));
-
-            await FaceEmbedding.insertMany(embeddings);
-            facesCount += faces.length;
-          }
-
-          // Mark photo as completed
-          photo.indexed = true;
-          photo.facesFound = faces?.length || 0;
-          photo.processing.status = 'completed';
-          photo.processing.processedAt = new Date();
-          await photo.save();
-
-          processedCount++;
-
-          // Update room status
-          await Room.findByIdAndUpdate(room._id, {
-            processedPhotos: processedCount,
-            'processing.completed': processedCount,
-            $inc: { facesDetected: faces?.length || 0 },
-          });
-        } catch (err) {
-          logger.error(`Error processing Drive photo ${driveFile.name}:`, err.message);
-        }
-      }
-
-      // Mark room ready when background processing finishes
-      const now = new Date();
-      await Room.findByIdAndUpdate(room._id, {
-        status: 'ready',
-        processedPhotos: driveFiles.length,
-        'sync.status': 'idle',
-        'sync.lastSyncedAt': now,
-        'sync.lastSyncCompletedAt': now,
-      });
-      logger.success(`Google Drive indexing finished for room ${room._id}. Total faces detected: ${facesCount}`);
-    })().catch((err) => {
-      logger.error('Background Drive indexing error:', err);
-      Room.findByIdAndUpdate(room._id, { status: 'ready', 'sync.status': 'error', 'sync.error': err.message }).catch(() => {});
-    });
-
+    // 5. Trigger INDEX JOB in background
+    processPhotoIndexingQueue(room._id, req.user);
   } catch (error) {
     next(error);
   }

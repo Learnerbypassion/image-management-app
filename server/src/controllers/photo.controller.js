@@ -8,8 +8,9 @@ import Room from '../models/Room.js';
 import env from '../config/env.js';
 import logger from '../utils/logger.js';
 import { getStorageProvider } from '../services/storage.service.js';
+import { processPhotoIndexingQueue } from '../services/indexing.queue.js';
 
-// POST /api/rooms/:roomId/photos — Upload photos (Direct Local -> Google Drive / Local Storage)
+// POST /api/rooms/:roomId/photos — Upload photos (Upload Job -> Storage complete -> Photo created (UPLOADED) -> Index Job queue)
 export const uploadPhotos = async (req, res, next) => {
   try {
     if (!req.canUpload) {
@@ -34,8 +35,8 @@ export const uploadPhotos = async (req, res, next) => {
     for (const file of req.files) {
       try {
         if (hasDrive) {
-          // --- YES: Upload directly to Google Drive ---
-          logger.info(`Streaming uploaded file "${file.originalname}" directly to Google Drive folder ${room.driveFolderId}...`);
+          // --- UPLOAD JOB: Stream directly to Google Drive ---
+          logger.info(`[Upload Job] Streaming "${file.originalname}" directly to Google Drive folder ${room.driveFolderId}...`);
 
           const driveFile = await driveProvider.uploadFile(user, file, room.driveFolderId);
 
@@ -48,7 +49,7 @@ export const uploadPhotos = async (req, res, next) => {
             }
           }
 
-          // Create Photo document in MongoDB
+          // Create Photo document in MongoDB with UPLOADED state
           const photo = await Photo.create({
             roomId: room._id,
             storageProvider: 'google-drive',
@@ -60,14 +61,14 @@ export const uploadPhotos = async (req, res, next) => {
               size: file.size,
             },
             processing: {
-              status: 'pending',
+              status: 'UPLOADED',
             },
             indexed: false,
           });
 
           photos.push(photo);
         } else {
-          // --- NO: Upload to Local Storage ---
+          // --- UPLOAD JOB: Upload to Local Storage ---
           const photo = await Photo.create({
             roomId: room._id,
             storageProvider: 'local',
@@ -79,7 +80,7 @@ export const uploadPhotos = async (req, res, next) => {
               localPath: file.path,
             },
             processing: {
-              status: 'pending',
+              status: 'UPLOADED',
             },
             indexed: false,
           });
@@ -87,7 +88,7 @@ export const uploadPhotos = async (req, res, next) => {
           photos.push(photo);
         }
       } catch (fileErr) {
-        logger.error(`Failed to process upload for file ${file.originalname}:`, fileErr.message);
+        logger.error(`[Upload Job Failed] File ${file.originalname}:`, fileErr.message);
       }
     }
 
@@ -95,88 +96,22 @@ export const uploadPhotos = async (req, res, next) => {
       return res.status(500).json({ error: 'Failed to process photo upload.' });
     }
 
-    // Update room photo count & status
+    // Storage Complete -> Update room metrics
     const totalPhotos = await Photo.countDocuments({ roomId: room._id });
     await Room.findByIdAndUpdate(room._id, {
       totalPhotos,
       status: 'indexing',
     });
 
-    // Respond immediately to client
+    // Respond immediately to client (Upload Job finished!)
     res.status(201).json({
       message: `${photos.length} photo(s) uploaded to ${hasDrive ? 'Google Drive' : 'Local Storage'} and queued for indexing.`,
       photosCount: photos.length,
       storageProvider: hasDrive ? 'google-drive' : 'local',
     });
 
-    // --- Background Face Indexing Queue Execution ---
-    (async () => {
-      let processedCount = await Photo.countDocuments({ roomId: room._id, indexed: true });
-
-      for (const photo of photos) {
-        try {
-          const formData = new FormData();
-
-          if (photo.storageProvider === 'google-drive') {
-            const imageBuffer = await driveProvider.getFileBuffer(user, photo.storage.fileId);
-            formData.append('file', imageBuffer, {
-              filename: photo.storage.fileName || 'photo.jpg',
-              contentType: photo.storage.mimeType || 'image/jpeg',
-            });
-          } else {
-            const imagePath = photo.storage?.localPath || photo.localPath;
-            if (!imagePath || !fs.existsSync(imagePath)) continue;
-            formData.append('file', fs.createReadStream(imagePath), {
-              filename: photo.storage?.fileName || photo.fileName || 'photo.jpg',
-              contentType: photo.storage?.mimeType || photo.mimeType || 'image/jpeg',
-            });
-          }
-
-          const response = await axios.post(
-            `${env.FACE_SERVICE_URL}/detect`,
-            formData,
-            {
-              headers: formData.getHeaders(),
-              timeout: 60000,
-            }
-          );
-
-          const { faces } = response.data;
-
-          if (faces && faces.length > 0) {
-            const embeddings = faces.map((face) => ({
-              roomId: room._id,
-              photoId: photo._id,
-              embedding: face.embedding,
-              boundingBox: face.bounding_box,
-              qualityScore: face.quality_score,
-              confidence: face.confidence,
-            }));
-
-            await FaceEmbedding.insertMany(embeddings);
-          }
-
-          photo.indexed = true;
-          photo.facesFound = faces?.length || 0;
-          photo.processing.status = 'completed';
-          await photo.save();
-
-          processedCount++;
-
-          await Room.findByIdAndUpdate(room._id, {
-            processedPhotos: processedCount,
-            $inc: { facesDetected: faces?.length || 0 },
-          });
-        } catch (err) {
-          logger.error(`Error auto-indexing uploaded photo ${photo._id}:`, err.message);
-        }
-      }
-
-      await Room.findByIdAndUpdate(room._id, {
-        status: 'ready',
-        processedPhotos: totalPhotos,
-      });
-    })();
+    // --- INDEX JOB: Queue background face detection ---
+    processPhotoIndexingQueue(room._id, user);
   } catch (error) {
     next(error);
   }
@@ -197,9 +132,12 @@ export const getRoomPhotos = async (req, res, next) => {
 
     res.json({
       photos,
-      total,
-      page: parseInt(page),
-      pages: Math.ceil(total / parseInt(limit)),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit),
+      },
     });
   } catch (error) {
     next(error);
@@ -243,107 +181,25 @@ export const indexPhotos = async (req, res, next) => {
       return res.status(403).json({ error: 'You do not have permission to start indexing.' });
     }
 
-    const totalPhotos = await Photo.countDocuments({ roomId: req.room._id });
-    const indexedPhotosCount = await Photo.countDocuments({ roomId: req.room._id, indexed: true });
     const unindexedPhotos = await Photo.find({
       roomId: req.room._id,
       indexed: false,
     });
 
     if (unindexedPhotos.length === 0) {
-      await Room.findByIdAndUpdate(req.room._id, {
-        status: 'ready',
-        totalPhotos,
-        processedPhotos: indexedPhotosCount,
-      });
       return res.json({ message: 'All photos are already indexed.' });
     }
 
-    // Update room status
-    await Room.findByIdAndUpdate(req.room._id, {
-      status: 'indexing',
-      totalPhotos,
-      processedPhotos: indexedPhotosCount,
-    });
+    // Mark unindexed photos UPLOADED -> trigger processPhotoIndexingQueue
+    await Photo.updateMany(
+      { roomId: req.room._id, indexed: false },
+      { 'processing.status': 'UPLOADED' }
+    );
 
-    // Process photos
-    let processedCount = indexedPhotosCount;
-    let facesCount = 0;
+    res.json({ message: `Indexing queued for ${unindexedPhotos.length} photo(s).` });
 
-    for (const photo of unindexedPhotos) {
-      try {
-        // Read the image file
-        const imagePath = photo.storage?.localPath || photo.localPath;
-        if (!imagePath || !fs.existsSync(imagePath)) {
-          logger.warn(`Skipping photo ${photo._id}: file not found at ${imagePath}`);
-          continue;
-        }
-
-        const fileName = photo.storage?.fileName || photo.fileName || 'photo.jpg';
-        const mimeType = photo.storage?.mimeType || photo.mimeType || 'image/jpeg';
-
-        // Send to face service using form-data stream
-        const formData = new FormData();
-        formData.append('file', fs.createReadStream(imagePath), {
-          filename: fileName,
-          contentType: mimeType,
-        });
-
-        const response = await axios.post(
-          `${env.FACE_SERVICE_URL}/detect`,
-          formData,
-          {
-            headers: formData.getHeaders(),
-            timeout: 60000, // 60s per photo
-          }
-        );
-
-        const { faces } = response.data;
-
-        // Store face embeddings
-        if (faces && faces.length > 0) {
-          const embeddings = faces.map((face) => ({
-            roomId: req.room._id,
-            photoId: photo._id,
-            embedding: face.embedding,
-            boundingBox: face.bounding_box,
-            qualityScore: face.quality_score,
-            confidence: face.confidence,
-          }));
-
-          await FaceEmbedding.insertMany(embeddings);
-          facesCount += faces.length;
-        }
-
-        // Mark photo as indexed
-        await Photo.findByIdAndUpdate(photo._id, {
-          indexed: true,
-          facesFound: faces?.length || 0,
-        });
-
-        processedCount++;
-
-        // Update room progress
-        await Room.findByIdAndUpdate(req.room._id, {
-          processedPhotos: processedCount,
-          $inc: { facesDetected: faces?.length || 0 },
-        });
-      } catch (err) {
-        logger.error(`Error processing photo ${photo._id}:`, err.message);
-      }
-    }
-
-    // Update room status to ready
-    await Room.findByIdAndUpdate(req.room._id, {
-      status: 'ready',
-      processedPhotos: totalPhotos,
-    });
-
-    res.json({
-      message: 'Indexing complete.',
-      processed: processedCount,
-      facesDetected: facesCount,
-    });
+    // Trigger INDEX JOB
+    processPhotoIndexingQueue(req.room._id, req.user);
   } catch (error) {
     next(error);
   }
