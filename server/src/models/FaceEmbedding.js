@@ -22,6 +22,10 @@ const faceEmbeddingSchema = new mongoose.Schema({
     width: { type: Number, required: true },
     height: { type: Number, required: true },
   },
+  faceIndex: {
+    type: Number,
+    default: 0,
+  },
   qualityScore: {
     type: Number,
     default: 0,
@@ -34,8 +38,8 @@ const faceEmbeddingSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-// Compound index for room-scoped queries
-faceEmbeddingSchema.index({ roomId: 1, photoId: 1 });
+// Compound unique index for idempotent face insertion
+faceEmbeddingSchema.index({ roomId: 1, photoId: 1, faceIndex: 1 }, { unique: true });
 
 const FaceEmbedding = mongoose.model('FaceEmbedding', faceEmbeddingSchema);
 

@@ -92,18 +92,21 @@ export const processPhotoIndexingQueue = async (roomId, user) => {
 
         const { faces } = response.data;
 
-        // Store embeddings in MongoDB Vector Search
+        // Store embeddings in MongoDB Vector Search (Idempotent: delete previous embeddings first)
+        await FaceEmbedding.deleteMany({ roomId, photoId: photo._id });
+
         if (faces && faces.length > 0) {
-          const embeddings = faces.map((face) => ({
+          const embeddings = faces.map((face, index) => ({
             roomId,
             photoId: photo._id,
+            faceIndex: index,
             embedding: face.embedding,
             boundingBox: face.bounding_box,
-            qualityScore: face.quality_score,
-            confidence: face.confidence,
+            qualityScore: face.quality_score || 0,
+            confidence: face.confidence || 0,
           }));
 
-          await FaceEmbedding.insertMany(embeddings);
+          await FaceEmbedding.insertMany(embeddings, { ordered: false });
         }
 
         // Transition state to INDEXED

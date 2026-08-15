@@ -7,7 +7,7 @@ import Photo from '../models/Photo.js';
 import FaceEmbedding from '../models/FaceEmbedding.js';
 import env from '../config/env.js';
 import logger from '../utils/logger.js';
-import { processPhotoIndexingQueue } from '../services/indexing.queue.js';
+import { enqueuePhotoIndexingBatch } from '../queues/indexing.queue.js';
 
 // GET /api/drive/connect
 export const getConnectUrl = async (req, res, next) => {
@@ -134,9 +134,10 @@ export const indexDrivePhotos = async (req, res, next) => {
       return res.json({ message: 'All photos in this Drive folder are already indexed.' });
     }
 
-    // 3. Create Photo records for DISCOVERED drive files with status UPLOADED
+    // 3. Create Photo records for DISCOVERED drive files with status UPLOADED & QUEUED
+    const createdPhotos = [];
     for (const driveFile of unindexedDriveFiles) {
-      await Photo.create({
+      const photo = await Photo.create({
         roomId: room._id,
         storageProvider: 'google-drive',
         storage: {
@@ -149,28 +150,23 @@ export const indexDrivePhotos = async (req, res, next) => {
           height: driveFile.imageMediaMetadata?.height || null,
         },
         processing: {
-          status: 'UPLOADED',
+          uploadStatus: 'UPLOADED',
+          indexingStatus: 'QUEUED',
+          status: 'QUEUED',
         },
         indexed: false,
       });
+      createdPhotos.push(photo);
     }
 
-    // 4. Update room status
-    room.status = 'indexing';
-    room.sync.status = 'syncing';
-    room.sync.lastSyncStartedAt = new Date();
-    room.totalPhotos = driveFiles.length;
-    room.processedPhotos = alreadyIndexedCount;
-    await room.save();
+    // 4. Bulk enqueue into BullMQ Redis Queue
+    await enqueuePhotoIndexingBatch(createdPhotos, room._id, req.user);
 
     // Respond immediately to client (Upload/Discovery Job complete!)
     res.json({
-      message: `Indexing started for ${unindexedDriveFiles.length} Drive photo(s).`,
+      message: `Indexing started and safely queued into BullMQ for ${unindexedDriveFiles.length} Drive photo(s).`,
       total: unindexedDriveFiles.length,
     });
-
-    // 5. Trigger INDEX JOB in background
-    processPhotoIndexingQueue(room._id, req.user);
   } catch (error) {
     next(error);
   }

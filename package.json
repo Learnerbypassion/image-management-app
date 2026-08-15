@@ -6,7 +6,8 @@
   "scripts": {
     "dev:client": "cd client && npm run dev",
     "dev:server": "cd server && npm run dev",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:worker": "cd server && npm run dev:worker",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:worker\" \"npm run dev:client\"",
     "install:all": "cd client && npm install && cd ../server && npm install"
   },
   "devDependencies": {

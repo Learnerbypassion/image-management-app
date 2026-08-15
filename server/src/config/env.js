@@ -32,6 +32,10 @@ const env = {
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
   GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5000/api/drive/callback',
+  REDIS_HOST: process.env.REDIS_HOST || '127.0.0.1',
+  REDIS_PORT: parseInt(process.env.REDIS_PORT || '6379', 10),
+  REDIS_URL: process.env.REDIS_URL || null,
+  INDEXING_CONCURRENCY: parseInt(process.env.INDEXING_CONCURRENCY || '3', 10),
 };
 
 // Validate required vars

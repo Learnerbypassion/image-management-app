@@ -18,10 +18,18 @@ import faceRoutes from './routes/face.routes.js';
 import singlePhotoRoutes from './routes/singlePhoto.routes.js';
 import driveRoutes from './routes/drive.routes.js';
 import uploadRequestRoutes from './routes/uploadRequest.routes.js';
+import http from 'http';
+import processingRoutes from './routes/processing.routes.js';
+import { initSocketServer } from './config/socket.js';
+import createIndexingWorker from './workers/indexing.worker.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
+const server = http.createServer(app);
+
+// Initialize Socket.IO Real-time Progress Server
+initSocketServer(server);
 
 // Ensure uploads directory exists (Phase 2)
 const uploadsDir = path.join(__dirname, '../uploads');
@@ -49,6 +57,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/drive', driveRoutes);
 app.use('/api/rooms', roomRoutes);
+app.use('/api/rooms', processingRoutes);
 app.use('/api/rooms', photoRoutes);
 app.use('/api/rooms', faceRoutes);
 app.use('/api/photos', singlePhotoRoutes);
@@ -78,8 +87,17 @@ app.use((err, req, res, next) => {
 const start = async () => {
   await connectDB();
 
-  app.listen(env.PORT, () => {
-    logger.success(`Server running on port ${env.PORT}`);
+  // Initialize BullMQ Background Worker
+  try {
+    const indexingWorker = createIndexingWorker();
+    indexingWorker.on('error', () => {});
+    logger.info('✅ BullMQ Indexing Worker initialized inside API server process.');
+  } catch (workerErr) {
+    logger.warn(`Could not start embedded worker: ${workerErr.message}`);
+  }
+
+  server.listen(env.PORT, () => {
+    logger.success(`API & Socket.IO Server running on port ${env.PORT}`);
     logger.info(`Environment: ${env.NODE_ENV}`);
     logger.info(`Face service: ${env.FACE_SERVICE_URL}`);
   });

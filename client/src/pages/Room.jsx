@@ -6,6 +6,8 @@ import DriveFolderPicker from '../components/DriveFolderPicker';
 import QRCodeModal from '../components/QRCodeModal';
 import PhotographerStatus from '../components/PhotographerStatus';
 import UploadRequestsPanel from '../components/UploadRequestsPanel';
+import ProcessingCenterModal from '../components/ProcessingCenterModal';
+import SafeBlockingModal from '../components/SafeBlockingModal';
 import api from '../services/api';
 import {
   HiOutlineCloudArrowUp,
@@ -31,11 +33,13 @@ const Room = () => {
   const [successMsg, setSuccessMsg] = useState('');
   const [copied, setCopied] = useState(false);
 
-  // Google Drive state
+  // Google Drive & Processing Center state
   const [isDriveConnected, setIsDriveConnected] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [indexingDrive, setIndexingDrive] = useState(false);
   const [showQRCode, setShowQRCode] = useState(false);
+  const [showProcessingCenter, setShowProcessingCenter] = useState(false);
+  const [showSafeBlocking, setShowSafeBlocking] = useState(false);
 
   // Photographer status (updated by PhotographerStatus component)
   const [photographerStatus, setPhotographerStatus] = useState(null);
@@ -116,6 +120,7 @@ const Room = () => {
 
   const handleIndexDrive = async () => {
     setIndexingDrive(true);
+    setShowSafeBlocking(true);
     setError('');
     setSuccessMsg('');
 
@@ -127,6 +132,7 @@ const Room = () => {
       setError(err.response?.data?.error || 'Drive photo indexing failed.');
     } finally {
       setIndexingDrive(false);
+      setShowSafeBlocking(false);
     }
   };
 
@@ -134,14 +140,15 @@ const Room = () => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('photos', files[i]);
+    }
+
     setUploading(true);
+    setShowSafeBlocking(true);
     setError('');
     setSuccessMsg('');
-
-    const formData = new FormData();
-    for (const file of files) {
-      formData.append('photos', file);
-    }
 
     try {
       const { data } = await api.post(`/rooms/${roomId}/photos`, formData, {
@@ -150,9 +157,12 @@ const Room = () => {
       setSuccessMsg(data.message);
       fetchRoom();
     } catch (err) {
-      setError(err.response?.data?.error || 'Upload failed.');
+      setError(err.response?.data?.error || 'Failed to upload photo(s).');
     } finally {
       setUploading(false);
+      setShowSafeBlocking(false);
+      // Reset input value so re-selecting same file triggers onChange
+      e.target.value = '';
     }
   };
 
@@ -317,6 +327,7 @@ const Room = () => {
             total={room.totalPhotos}
             processed={room.processedPhotos}
             facesDetected={room.facesDetected}
+            onOpenProcessingCenter={() => setShowProcessingCenter(true)}
           />
         </div>
 
@@ -474,13 +485,19 @@ const Room = () => {
         />
       )}
 
-      {/* QR Code Modal */}
-      {showQRCode && (
-        <QRCodeModal
-          room={room}
-          onClose={() => setShowQRCode(false)}
-        />
-      )}
+      {/* Processing Center Modal */}
+      <ProcessingCenterModal
+        isOpen={showProcessingCenter}
+        onClose={() => setShowProcessingCenter(false)}
+        roomId={roomId}
+      />
+
+      {/* Safe Blocking Enqueueing UX Overlay */}
+      <SafeBlockingModal
+        isOpen={showSafeBlocking}
+        title="Preparing Event Indexing"
+        message="Safely queuing photos into BullMQ Redis Queue. Please wait a moment..."
+      />
     </div>
   );
 };

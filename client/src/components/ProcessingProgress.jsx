@@ -1,4 +1,4 @@
-const ProcessingProgress = ({ status, total, processed, facesDetected }) => {
+const ProcessingProgress = ({ status, total, processed, facesDetected, onOpenProcessingCenter }) => {
   const percentage = total > 0 ? Math.round((processed / total) * 100) : 0;
 
   if (status === 'created') {
@@ -17,9 +17,19 @@ const ProcessingProgress = ({ status, total, processed, facesDetected }) => {
             <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]" />
             <h3 className="text-lg font-semibold text-white">Indexing Complete</h3>
           </div>
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">
-            INDEXED
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">
+              INDEXED
+            </span>
+            {onOpenProcessingCenter && (
+              <button
+                onClick={onOpenProcessingCenter}
+                className="px-3 py-1 rounded-xl bg-surface-800 hover:bg-surface-700 text-surface-200 text-xs font-medium border border-white/10 transition-colors"
+              >
+                Processing Center ⚡
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-4 mt-4">
@@ -48,10 +58,18 @@ const ProcessingProgress = ({ status, total, processed, facesDetected }) => {
           <div className="w-3 h-3 rounded-full bg-indigo-500 pulse-glow" />
           <h3 className="text-lg font-semibold text-white">Indexing Job Running...</h3>
         </div>
-        <div className="flex items-center gap-1.5 text-xs font-mono">
-          <span className="px-2 py-0.5 rounded bg-primary-500/20 text-primary-300 border border-primary-500/30">
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded bg-primary-500/20 text-primary-300 border border-primary-500/30 text-xs font-mono">
             PROCESSING
           </span>
+          {onOpenProcessingCenter && (
+            <button
+              onClick={onOpenProcessingCenter}
+              className="px-3 py-1 rounded-xl bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 text-xs font-semibold border border-primary-500/30 transition-colors"
+            >
+              Processing Center ⚡
+            </button>
+          )}
         </div>
       </div>
 

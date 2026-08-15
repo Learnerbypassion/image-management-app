@@ -28,8 +28,46 @@ const photoSchema = new mongoose.Schema({
     height: { type: Number, default: null },
   },
 
-  // Granular processing lifecycle state
+  // Decoupled processing lifecycle states
   processing: {
+    uploadStatus: {
+      type: String,
+      enum: ['PENDING', 'UPLOADING', 'UPLOADED', 'FAILED'],
+      default: 'PENDING',
+      index: true,
+    },
+    indexingStatus: {
+      type: String,
+      enum: ['QUEUED', 'PROCESSING', 'INDEXED', 'FAILED', 'PERMANENTLY_FAILED'],
+      default: 'QUEUED',
+      index: true,
+    },
+    // BullMQ Job Tracking
+    jobId: { type: String, default: null, index: true },
+    queueName: { type: String, default: 'photo-indexing' },
+    attempts: { type: Number, default: 0 },
+    lastError: { type: String, default: null },
+    failureCode: {
+      type: String,
+      enum: [
+        'DRIVE_DOWNLOAD_FAILED',
+        'FACE_SERVICE_UNAVAILABLE',
+        'INVALID_IMAGE',
+        'NO_FACE',
+        'TIMEOUT',
+        'GOOGLE_AUTH_ERROR',
+        'RATE_LIMIT',
+        'UNKNOWN',
+        null,
+      ],
+      default: null,
+    },
+    lastAttemptAt: { type: Date, default: null },
+    nextRetryAt: { type: Date, default: null },
+    processedAt: { type: Date, default: null },
+    error: { type: String, default: null },
+    
+    // Legacy status virtual fallback support
     status: {
       type: String,
       enum: [
@@ -40,19 +78,12 @@ const photoSchema = new mongoose.Schema({
         'PROCESSING',
         'INDEXED',
         'FAILED',
-        // Legacy fallback values
+        'PERMANENTLY_FAILED',
         'pending',
-        'downloading',
-        'face_detection',
-        'embedding',
         'completed',
-        'failed',
       ],
-      default: 'DISCOVERED',
-      index: true,
+      default: 'UPLOADED',
     },
-    processedAt: { type: Date, default: null },
-    error: { type: String, default: null },
   },
 
   // Legacy & status flags

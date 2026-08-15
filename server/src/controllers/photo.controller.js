@@ -8,9 +8,9 @@ import Room from '../models/Room.js';
 import env from '../config/env.js';
 import logger from '../utils/logger.js';
 import { getStorageProvider } from '../services/storage.service.js';
-import { processPhotoIndexingQueue } from '../services/indexing.queue.js';
+import { enqueuePhotoIndexingBatch } from '../queues/indexing.queue.js';
 
-// POST /api/rooms/:roomId/photos — Upload photos (Upload Job -> Storage complete -> Photo created (UPLOADED) -> Index Job queue)
+// POST /api/rooms/:roomId/photos — Upload photos (Upload Job -> BullMQ addBulk enqueueing -> Worker process)
 export const uploadPhotos = async (req, res, next) => {
   try {
     if (!req.canUpload) {
@@ -49,7 +49,7 @@ export const uploadPhotos = async (req, res, next) => {
             }
           }
 
-          // Create Photo document in MongoDB with UPLOADED state
+          // Create Photo document in MongoDB with UPLOADED uploadStatus & QUEUED indexingStatus
           const photo = await Photo.create({
             roomId: room._id,
             storageProvider: 'google-drive',
@@ -61,7 +61,9 @@ export const uploadPhotos = async (req, res, next) => {
               size: file.size,
             },
             processing: {
-              status: 'UPLOADED',
+              uploadStatus: 'UPLOADED',
+              indexingStatus: 'QUEUED',
+              status: 'QUEUED',
             },
             indexed: false,
           });
@@ -80,7 +82,9 @@ export const uploadPhotos = async (req, res, next) => {
               localPath: file.path,
             },
             processing: {
-              status: 'UPLOADED',
+              uploadStatus: 'UPLOADED',
+              indexingStatus: 'QUEUED',
+              status: 'QUEUED',
             },
             indexed: false,
           });
@@ -96,22 +100,15 @@ export const uploadPhotos = async (req, res, next) => {
       return res.status(500).json({ error: 'Failed to process photo upload.' });
     }
 
-    // Storage Complete -> Update room metrics
-    const totalPhotos = await Photo.countDocuments({ roomId: room._id });
-    await Room.findByIdAndUpdate(room._id, {
-      totalPhotos,
-      status: 'indexing',
-    });
+    // High-performance bulk enqueue operation into BullMQ Redis Queue
+    await enqueuePhotoIndexingBatch(photos, room._id, user);
 
-    // Respond immediately to client (Upload Job finished!)
+    // Respond immediately to client
     res.status(201).json({
-      message: `${photos.length} photo(s) uploaded to ${hasDrive ? 'Google Drive' : 'Local Storage'} and queued for indexing.`,
+      message: `${photos.length} photo(s) uploaded and safely queued into BullMQ Redis queue.`,
       photosCount: photos.length,
       storageProvider: hasDrive ? 'google-drive' : 'local',
     });
-
-    // --- INDEX JOB: Queue background face detection ---
-    processPhotoIndexingQueue(room._id, user);
   } catch (error) {
     next(error);
   }
@@ -174,7 +171,7 @@ export const getPhoto = async (req, res, next) => {
   }
 };
 
-// POST /api/rooms/:roomId/index — Trigger face indexing
+// POST /api/rooms/:roomId/index — Trigger face indexing via BullMQ Queue
 export const indexPhotos = async (req, res, next) => {
   try {
     if (!req.canUpload) {
@@ -190,16 +187,10 @@ export const indexPhotos = async (req, res, next) => {
       return res.json({ message: 'All photos are already indexed.' });
     }
 
-    // Mark unindexed photos UPLOADED -> trigger processPhotoIndexingQueue
-    await Photo.updateMany(
-      { roomId: req.room._id, indexed: false },
-      { 'processing.status': 'UPLOADED' }
-    );
+    // Bulk enqueue into BullMQ Redis Queue
+    await enqueuePhotoIndexingBatch(unindexedPhotos, req.room._id, req.user);
 
-    res.json({ message: `Indexing queued for ${unindexedPhotos.length} photo(s).` });
-
-    // Trigger INDEX JOB
-    processPhotoIndexingQueue(req.room._id, req.user);
+    res.json({ message: `Indexing safely queued into BullMQ for ${unindexedPhotos.length} photo(s).` });
   } catch (error) {
     next(error);
   }
