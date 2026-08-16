@@ -26,6 +26,15 @@ const photoSchema = new mongoose.Schema({
     localPath: { type: String, default: null },
     width: { type: Number, default: null },
     height: { type: Number, default: null },
+    driveModifiedTime: { type: String, default: null },  // Drive file modifiedTime ISO string
+    md5Checksum: { type: String, default: null },         // Drive file md5Checksum
+  },
+
+  // Sync action classification (set by sync engine)
+  syncAction: {
+    type: String,
+    enum: ['NEW', 'MODIFIED', 'RENAMED', 'DELETED', null],
+    default: null,
   },
 
   // Decoupled processing lifecycle states

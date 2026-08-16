@@ -40,6 +40,17 @@ export const uploadPhotos = async (req, res, next) => {
 
           const driveFile = await driveProvider.uploadFile(user, file, room.driveFolderId);
 
+          // Fetch modifiedTime & md5Checksum so sync engine recognizes this file
+          let driveModifiedTime = null;
+          let md5Checksum = null;
+          try {
+            const meta = await driveProvider.getMetadata(user, driveFile.id);
+            driveModifiedTime = meta.modifiedTime || null;
+            md5Checksum = meta.md5Checksum || null;
+          } catch (e) {
+            // Non-critical — sync engine will populate on next sync
+          }
+
           // Delete temporary local file immediately (Never keep permanently on Node server)
           if (file.path && fs.existsSync(file.path)) {
             try {
@@ -59,7 +70,10 @@ export const uploadPhotos = async (req, res, next) => {
               fileName: file.originalname,
               mimeType: file.mimetype,
               size: file.size,
+              driveModifiedTime,
+              md5Checksum,
             },
+            syncAction: 'NEW',
             processing: {
               uploadStatus: 'UPLOADED',
               indexingStatus: 'QUEUED',

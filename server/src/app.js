@@ -22,6 +22,8 @@ import http from 'http';
 import processingRoutes from './routes/processing.routes.js';
 import { initSocketServer } from './config/socket.js';
 import createIndexingWorker from './workers/indexing.worker.js';
+import { startSyncScheduler } from './services/syncScheduler.js';
+import chunkedUploadRoutes from './routes/chunkedUpload.routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -62,6 +64,7 @@ app.use('/api/rooms', photoRoutes);
 app.use('/api/rooms', faceRoutes);
 app.use('/api/photos', singlePhotoRoutes);
 app.use('/api', uploadRequestRoutes);
+app.use('/api/rooms', chunkedUploadRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
@@ -94,6 +97,14 @@ const start = async () => {
     logger.info('✅ BullMQ Indexing Worker initialized inside API server process.');
   } catch (workerErr) {
     logger.warn(`Could not start embedded worker: ${workerErr.message}`);
+  }
+
+  // Start the Drive Sync Scheduler
+  try {
+    await startSyncScheduler();
+    logger.info('✅ Drive Sync Scheduler started.');
+  } catch (syncErr) {
+    logger.warn(`Could not start sync scheduler: ${syncErr.message}`);
   }
 
   server.listen(env.PORT, () => {

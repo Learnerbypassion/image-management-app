@@ -58,6 +58,11 @@ const roomSchema = new mongoose.Schema({
   // Sync state tracking
   sync: {
     enabled: { type: Boolean, default: true },
+    interval: {
+      type: String,
+      enum: ['5m', '15m', '30m', '1h', 'manual'],
+      default: '5m',
+    },
     status: {
       type: String,
       enum: ['idle', 'syncing', 'error'],
@@ -66,6 +71,7 @@ const roomSchema = new mongoose.Schema({
     lastSyncedAt: { type: Date, default: null },
     lastSyncStartedAt: { type: Date, default: null },
     lastSyncCompletedAt: { type: Date, default: null },
+    nextSyncAt: { type: Date, default: null },
     error: { type: String, default: null },
   },
 

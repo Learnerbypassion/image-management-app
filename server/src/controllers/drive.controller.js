@@ -1,10 +1,9 @@
-import axios from 'axios';
-import FormData from 'form-data';
 import * as driveService from '../services/googleDrive.service.js';
 import { getStorageProvider } from '../services/storage.service.js';
+import { syncRoom, getNextSyncAt } from '../services/driveSync.service.js';
+import { registerRoomForSync, unregisterRoomFromSync } from '../services/syncScheduler.js';
 import Room from '../models/Room.js';
 import Photo from '../models/Photo.js';
-import FaceEmbedding from '../models/FaceEmbedding.js';
 import env from '../config/env.js';
 import logger from '../utils/logger.js';
 import { enqueuePhotoIndexingBatch } from '../queues/indexing.queue.js';
@@ -85,7 +84,12 @@ export const selectDriveFolder = async (req, res, next) => {
     room.driveFolderId = folderId;
     room.driveFolderName = folderName || 'Selected Drive Folder';
     room.storageProvider = 'google-drive';
+    room.sync.enabled = true;
+    room.sync.nextSyncAt = getNextSyncAt(room.sync?.interval || '5m');
     await room.save();
+
+    // Register for automatic sync
+    await registerRoomForSync(room._id, room.sync?.interval || '5m');
 
     res.json({ message: 'Drive folder linked successfully.', room });
   } catch (error) {
@@ -93,11 +97,11 @@ export const selectDriveFolder = async (req, res, next) => {
   }
 };
 
-// POST /api/rooms/:roomId/index-drive
+// POST /api/rooms/:roomId/index-drive — Trigger sync (replaces old inline indexing)
 export const indexDrivePhotos = async (req, res, next) => {
   try {
     if (!req.canUpload) {
-      return res.status(403).json({ error: 'You do not have permission to start Drive indexing.' });
+      return res.status(403).json({ error: 'You do not have permission to start Drive sync.' });
     }
 
     const room = req.room;
@@ -109,66 +113,105 @@ export const indexDrivePhotos = async (req, res, next) => {
       return res.status(400).json({ error: 'Google Drive is not connected for your account.' });
     }
 
-    const driveProvider = getStorageProvider('google-drive');
+    const result = await syncRoom(room, req.user);
 
-    // 1. Query files in Drive folder
-    logger.info(`Fetching photos from Drive folder ${room.driveFolderId}...`);
-    const driveFiles = await driveProvider.listFiles(req.user, room.driveFolderId);
-
-    if (driveFiles.length === 0) {
-      return res.status(400).json({ error: 'No image files (JPEG, PNG, WebP, HEIC) found directly inside the selected Google Drive folder.' });
-    }
-
-    // 2. Identify unindexed photos
-    const existingPhotos = await Photo.find({ roomId: room._id });
-    const existingDriveIds = new Set(existingPhotos.map((p) => p.storage?.fileId || p.driveFileId));
-
-    const unindexedDriveFiles = driveFiles.filter((f) => !existingDriveIds.has(f.id));
-    const alreadyIndexedCount = driveFiles.length - unindexedDriveFiles.length;
-
-    if (unindexedDriveFiles.length === 0) {
-      room.status = 'ready';
-      room.totalPhotos = driveFiles.length;
-      room.processedPhotos = driveFiles.length;
-      await room.save();
-      return res.json({ message: 'All photos in this Drive folder are already indexed.' });
-    }
-
-    // 3. Create Photo records for DISCOVERED drive files with status UPLOADED & QUEUED
-    const createdPhotos = [];
-    for (const driveFile of unindexedDriveFiles) {
-      const photo = await Photo.create({
-        roomId: room._id,
-        storageProvider: 'google-drive',
-        storage: {
-          fileId: driveFile.id,
-          folderId: room.driveFolderId,
-          fileName: driveFile.name,
-          mimeType: driveFile.mimeType || 'image/jpeg',
-          size: driveFile.size ? parseInt(driveFile.size) : 0,
-          width: driveFile.imageMediaMetadata?.width || null,
-          height: driveFile.imageMediaMetadata?.height || null,
-        },
-        processing: {
-          uploadStatus: 'UPLOADED',
-          indexingStatus: 'QUEUED',
-          status: 'QUEUED',
-        },
-        indexed: false,
-      });
-      createdPhotos.push(photo);
-    }
-
-    // 4. Bulk enqueue into BullMQ Redis Queue
-    await enqueuePhotoIndexingBatch(createdPhotos, room._id, req.user);
-
-    // Respond immediately to client (Upload/Discovery Job complete!)
     res.json({
-      message: `Indexing started and safely queued into BullMQ for ${unindexedDriveFiles.length} Drive photo(s).`,
-      total: unindexedDriveFiles.length,
+      message: `Drive sync complete: ${result.newCount} new, ${result.modifiedCount} modified, ${result.deletedCount} deleted, ${result.unchangedCount} unchanged.`,
+      ...result,
     });
   } catch (error) {
     next(error);
   }
 };
 
+// POST /api/rooms/:roomId/sync/trigger — Manual sync now
+export const triggerSync = async (req, res, next) => {
+  try {
+    if (!req.isRoomOwner) {
+      return res.status(403).json({ error: 'Only the room owner can trigger sync.' });
+    }
+
+    const room = req.room;
+    if (!room.driveFolderId) {
+      return res.status(400).json({ error: 'No Google Drive folder linked to this room.' });
+    }
+
+    if (!req.user.googleTokens?.isConnected) {
+      return res.status(400).json({ error: 'Google Drive is not connected.' });
+    }
+
+    if (room.sync?.status === 'syncing') {
+      return res.status(409).json({ error: 'A sync is already in progress.' });
+    }
+
+    const result = await syncRoom(room, req.user);
+
+    res.json({
+      message: `Sync complete: ${result.newCount} new, ${result.modifiedCount} modified, ${result.deletedCount} deleted.`,
+      ...result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/rooms/:roomId/sync/status — Detailed sync state
+export const getSyncStatus = async (req, res) => {
+  const room = req.room;
+  res.json({
+    enabled: room.sync?.enabled ?? true,
+    interval: room.sync?.interval || '5m',
+    status: room.sync?.status || 'idle',
+    lastSyncedAt: room.sync?.lastSyncedAt || null,
+    lastSyncCompletedAt: room.sync?.lastSyncCompletedAt || null,
+    nextSyncAt: room.sync?.nextSyncAt || null,
+    error: room.sync?.error || null,
+    driveFolderId: room.driveFolderId || null,
+    driveFolderName: room.driveFolderName || null,
+  });
+};
+
+// POST /api/rooms/:roomId/sync/settings — Update sync interval
+export const updateSyncSettings = async (req, res, next) => {
+  try {
+    if (!req.isRoomOwner) {
+      return res.status(403).json({ error: 'Only the room owner can change sync settings.' });
+    }
+
+    const { interval, enabled } = req.body;
+
+    const updates = {};
+
+    if (typeof enabled === 'boolean') {
+      updates['sync.enabled'] = enabled;
+    }
+
+    if (interval) {
+      const validIntervals = ['5m', '15m', '30m', '1h', 'manual'];
+      if (!validIntervals.includes(interval)) {
+        return res.status(400).json({ error: `Invalid interval. Valid: ${validIntervals.join(', ')}` });
+      }
+      updates['sync.interval'] = interval;
+      updates['sync.nextSyncAt'] = getNextSyncAt(interval);
+    }
+
+    const room = await Room.findByIdAndUpdate(req.room._id, updates, { new: true });
+
+    // Register/unregister from scheduler
+    const finalEnabled = room.sync?.enabled ?? true;
+    const finalInterval = room.sync?.interval || '5m';
+
+    if (finalEnabled && finalInterval !== 'manual' && room.driveFolderId) {
+      await registerRoomForSync(room._id, finalInterval);
+    } else {
+      await unregisterRoomFromSync(room._id);
+    }
+
+    res.json({
+      message: 'Sync settings updated.',
+      sync: room.sync,
+    });
+  } catch (error) {
+    next(error);
+  }
+};

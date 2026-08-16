@@ -119,7 +119,7 @@ export const listPhotosInFolder = async (user, folderId) => {
   do {
     const response = await drive.files.list({
       q: `'${folderId}' in parents and trashed = false`,
-      fields: 'nextPageToken, files(id, name, mimeType, size, modifiedTime, imageMediaMetadata)',
+      fields: 'nextPageToken, files(id, name, mimeType, size, modifiedTime, md5Checksum, imageMediaMetadata)',
       pageSize: 100,
       pageToken: pageToken,
     });
