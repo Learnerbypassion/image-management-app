@@ -9,21 +9,25 @@ const Home = () => {
   const { user } = useAuth();
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchRooms();
-  }, []);
+  const [error, setError] = useState('');
 
   const fetchRooms = async () => {
+    setLoading(true);
+    setError('');
     try {
       const { data } = await api.get('/rooms');
-      setRooms(data.rooms);
+      setRooms(data.rooms || []);
     } catch (err) {
       console.error('Failed to fetch rooms:', err);
+      setError('Could not load your rooms. Please check your connection.');
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchRooms();
+  }, [user]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -79,6 +83,16 @@ const Home = () => {
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="spinner" style={{ width: 40, height: 40 }} />
+          </div>
+        ) : error ? (
+          <div className="glass rounded-2xl p-8 text-center border border-red-500/20">
+            <p className="text-red-400 text-sm mb-3">{error}</p>
+            <button
+              onClick={fetchRooms}
+              className="px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+            >
+              Try Again
+            </button>
           </div>
         ) : rooms.length === 0 ? (
           <div className="glass rounded-2xl p-12 text-center">

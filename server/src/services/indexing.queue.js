@@ -56,8 +56,9 @@ export const processPhotoIndexingQueue = async (roomId, user) => {
 
     logger.info(`Started Indexing Job for ${photosToProcess.length} photo(s) in room ${roomId}...`);
 
-    // Process each photo sequentially in queue
-    for (const photo of photosToProcess) {
+    const BATCH_SIZE = 3; // Process 3 photos concurrently
+
+    const processOnePhoto = async (photo) => {
       try {
         // Transition state to PROCESSING
         photo.processing.status = 'PROCESSING';
@@ -129,6 +130,12 @@ export const processPhotoIndexingQueue = async (roomId, user) => {
         photo.processing.error = err.message;
         await photo.save();
       }
+    };
+
+    // Process photos in concurrent batches
+    for (let i = 0; i < photosToProcess.length; i += BATCH_SIZE) {
+      const batch = photosToProcess.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(batch.map(processOnePhoto));
     }
 
     // Mark room ready when index job completes

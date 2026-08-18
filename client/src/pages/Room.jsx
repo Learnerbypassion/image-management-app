@@ -8,6 +8,7 @@ import PhotographerStatus from '../components/PhotographerStatus';
 import UploadRequestsPanel from '../components/UploadRequestsPanel';
 import ProcessingCenterModal from '../components/ProcessingCenterModal';
 import SafeBlockingModal from '../components/SafeBlockingModal';
+import SyncSettingsPanel from '../components/SyncSettingsPanel';
 import api from '../services/api';
 import {
   HiOutlineCloudArrowUp,
@@ -367,7 +368,6 @@ const Room = () => {
             </button>
           )}
 
-          {/* Option C: Index Google Drive Photos (in Google Drive mode when folder is linked) */}
           {canUpload && (room.storageProvider === 'google-drive' || !room.storageProvider) && isDriveConnected && room.driveFolderId && (
             <button
               onClick={handleIndexDrive}
@@ -378,10 +378,10 @@ const Room = () => {
                 <HiOutlineBolt className="text-white text-2xl" />
               </div>
               <h3 className="text-lg font-semibold text-white">
-                {indexingDrive ? 'Indexing Drive...' : 'Index Google Drive'}
+                {indexingDrive ? 'Syncing Drive...' : 'Sync Google Drive'}
               </h3>
               <p className="text-sm text-surface-200 mt-1">
-                Stream & detect faces directly from Drive
+                Detect new, modified & deleted photos
               </p>
             </button>
           )}
@@ -447,6 +447,17 @@ const Room = () => {
             </Link>
           )}
         </div>
+
+        {/* Drive Auto-Sync Settings (owner only, when Drive folder is linked) */}
+        {isOwner && isDriveConnected && room.driveFolderId && (
+          <div className="mb-8">
+            <SyncSettingsPanel
+              roomId={roomId}
+              onSyncComplete={() => fetchRoom()}
+              onReconnectDrive={handleConnectDrive}
+            />
+          </div>
+        )}
 
         {/* Upload Requests Panel (owner only) */}
         {isOwner && (

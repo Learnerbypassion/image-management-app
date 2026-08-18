@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
+import { getSocket, joinRoomChannel, leaveRoomChannel } from '../services/socket';
 import {
   HiOutlineArrowPath,
   HiOutlineClock,
@@ -41,10 +42,42 @@ const SyncSettingsPanel = ({ roomId, onSyncComplete, onReconnectDrive }) => {
 
   useEffect(() => {
     fetchSyncStatus();
-    // Poll sync status every 30s
-    const interval = setInterval(fetchSyncStatus, 30000);
-    return () => clearInterval(interval);
-  }, [fetchSyncStatus]);
+
+    // Socket.IO Channel Subscription
+    const socket = getSocket();
+    joinRoomChannel(roomId);
+
+    const handleSyncStarted = (payload) => {
+      if (payload.roomId === roomId.toString()) {
+        setSyncState((prev) => prev ? { ...prev, status: 'syncing' } : prev);
+      }
+    };
+
+    const handleSyncComplete = (payload) => {
+      if (payload.roomId === roomId.toString()) {
+        setSyncState((prev) => prev ? {
+          ...prev,
+          status: 'idle',
+          lastSyncedAt: payload.timestamp || new Date().toISOString(),
+        } : prev);
+        if (onSyncComplete) onSyncComplete(payload);
+      }
+    };
+
+    socket.on('sync:started', handleSyncStarted);
+    socket.on('sync:complete', handleSyncComplete);
+
+    // Poll sync status
+    const pollIntervalMs = syncState?.status === 'syncing' ? 5000 : 15000;
+    const interval = setInterval(fetchSyncStatus, pollIntervalMs);
+
+    return () => {
+      clearInterval(interval);
+      socket.off('sync:started', handleSyncStarted);
+      socket.off('sync:complete', handleSyncComplete);
+      leaveRoomChannel(roomId);
+    };
+  }, [roomId, fetchSyncStatus, syncState?.status, onSyncComplete]);
 
   const handleSyncNow = async () => {
     setSyncing(true);

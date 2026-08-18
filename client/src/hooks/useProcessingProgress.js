@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { getSocket, joinRoomChannel, leaveRoomChannel } from '../services/socket';
 
 export const useProcessingProgress = (roomId) => {
@@ -28,7 +28,7 @@ export const useProcessingProgress = (roomId) => {
   const fetchStatus = useCallback(async () => {
     if (!roomId) return;
     try {
-      const res = await axios.get(`/api/rooms/${roomId}/processing`);
+      const res = await api.get(`/rooms/${roomId}/processing`);
       setData(res.data);
     } catch (err) {
       console.error('Failed to fetch processing status REST API:', err);
@@ -41,6 +41,9 @@ export const useProcessingProgress = (roomId) => {
     if (!roomId) return;
 
     fetchStatus();
+
+    // Poll every 5s to keep data fresh (supplement Socket.IO)
+    const pollInterval = setInterval(fetchStatus, 5000);
 
     // Socket.IO Channel Subscription
     const socket = getSocket();
@@ -67,6 +70,7 @@ export const useProcessingProgress = (roomId) => {
     socket.on('processing:summary', handleSummaryUpdate);
 
     return () => {
+      clearInterval(pollInterval);
       socket.off('processing:summary', handleSummaryUpdate);
       leaveRoomChannel(roomId);
     };
@@ -75,7 +79,7 @@ export const useProcessingProgress = (roomId) => {
   const retryFailed = async (includePermanentlyFailed = false) => {
     setActionLoading(true);
     try {
-      await axios.post(`/api/rooms/${roomId}/processing/retry`, {
+      await api.post(`/rooms/${roomId}/processing/retry`, {
         includePermanentlyFailed,
       });
       await fetchStatus();
@@ -89,7 +93,7 @@ export const useProcessingProgress = (roomId) => {
   const pauseProcessing = async () => {
     setActionLoading(true);
     try {
-      await axios.post(`/api/rooms/${roomId}/processing/pause`);
+      await api.post(`/rooms/${roomId}/processing/pause`);
       await fetchStatus();
     } catch (err) {
       console.error('Failed to pause processing:', err);
@@ -101,7 +105,7 @@ export const useProcessingProgress = (roomId) => {
   const resumeProcessing = async () => {
     setActionLoading(true);
     try {
-      await axios.post(`/api/rooms/${roomId}/processing/resume`);
+      await api.post(`/rooms/${roomId}/processing/resume`);
       await fetchStatus();
     } catch (err) {
       console.error('Failed to resume processing:', err);

@@ -193,6 +193,9 @@ export const updateSyncSettings = async (req, res, next) => {
       }
       updates['sync.interval'] = interval;
       updates['sync.nextSyncAt'] = getNextSyncAt(interval);
+      if (interval === 'manual') {
+        updates['sync.status'] = 'idle';
+      }
     }
 
     const room = await Room.findByIdAndUpdate(req.room._id, updates, { new: true });

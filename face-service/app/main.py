@@ -31,6 +31,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Maximum dimension for input images — larger images are downscaled
+# to dramatically reduce processing time while preserving face detection accuracy
+MAX_INPUT_DIMENSION = 1280
+
+
+def resize_for_detection(image: np.ndarray) -> np.ndarray:
+    """
+    Downscale image if either dimension exceeds MAX_INPUT_DIMENSION.
+    Preserves aspect ratio. Returns original image if already small enough.
+    """
+    h, w = image.shape[:2]
+    if max(h, w) <= MAX_INPUT_DIMENSION:
+        return image
+
+    scale = MAX_INPUT_DIMENSION / max(h, w)
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return resized
+
 
 @app.on_event("startup")
 async def startup():
@@ -69,15 +89,27 @@ async def detect(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not decode image: {str(e)}")
 
-    # Detect faces
-    faces = detect_faces(image)
+    # Downscale large images for speed (3000x4000 → 960x1280)
+    original_h, original_w = image.shape[:2]
+    image = resize_for_detection(image)
+    resized_h, resized_w = image.shape[:2]
+
+    if (original_h, original_w) != (resized_h, resized_w):
+        scale_x = original_w / resized_w
+        scale_y = original_h / resized_h
+    else:
+        scale_x = 1.0
+        scale_y = 1.0
+
+    # Detect faces on the (possibly resized) image
+    faces = detect_faces(image, scale_x=scale_x, scale_y=scale_y)
 
     processing_time = (time.time() - start_time) * 1000  # ms
 
     return DetectionResponse(
         faces=faces,
-        image_width=image.shape[1],
-        image_height=image.shape[0],
+        image_width=original_w,
+        image_height=original_h,
         processing_time_ms=round(processing_time, 2),
     )
 

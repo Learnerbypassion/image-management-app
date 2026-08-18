@@ -75,6 +75,12 @@ export const startSyncScheduler = async () => {
 
   logger.info(`[SyncScheduler] Starting Drive sync scheduler (polling every ${POLL_INTERVAL_MS / 1000}s)...`);
 
+  // Reset any stale 'syncing' status left behind by server restart
+  await Room.updateMany(
+    { 'sync.status': 'syncing' },
+    { 'sync.status': 'idle' }
+  );
+
   // Initialize nextSyncAt for rooms that don't have it set yet
   const roomsWithoutNextSync = await Room.find({
     'sync.enabled': true,
@@ -128,6 +134,7 @@ export const registerRoomForSync = async (roomId, interval = '5m') => {
 export const unregisterRoomFromSync = async (roomId) => {
   await Room.findByIdAndUpdate(roomId, {
     'sync.enabled': false,
+    'sync.status': 'idle',
     'sync.nextSyncAt': null,
   });
   logger.info(`[SyncScheduler] Room ${roomId} unregistered from scheduled sync.`);

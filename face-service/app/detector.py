@@ -30,12 +30,14 @@ def get_face_app() -> FaceAnalysis:
     return _face_app
 
 
-def detect_faces(image: np.ndarray) -> list[FaceDetection]:
+def detect_faces(image: np.ndarray, scale_x: float = 1.0, scale_y: float = 1.0) -> list[FaceDetection]:
     """
     Detect faces in an image and return embeddings + metadata.
 
     Args:
-        image: BGR numpy array (OpenCV format)
+        image: BGR numpy array (OpenCV format), possibly resized
+        scale_x: Scale factor to convert x-coordinates back to original resolution
+        scale_y: Scale factor to convert y-coordinates back to original resolution
 
     Returns:
         List of FaceDetection objects with embeddings, bounding boxes,
@@ -49,13 +51,13 @@ def detect_faces(image: np.ndarray) -> list[FaceDetection]:
         # Compute quality score
         quality = compute_quality_score(face, image.shape)
 
-        # Extract bounding box
-        bbox = face.bbox.astype(int)
+        # Extract bounding box and scale back to original resolution
+        bbox = face.bbox.astype(float)
         bounding_box = BoundingBox(
-            x=float(bbox[0]),
-            y=float(bbox[1]),
-            width=float(bbox[2] - bbox[0]),
-            height=float(bbox[3] - bbox[1]),
+            x=float(bbox[0] * scale_x),
+            y=float(bbox[1] * scale_y),
+            width=float((bbox[2] - bbox[0]) * scale_x),
+            height=float((bbox[3] - bbox[1]) * scale_y),
         )
 
         # Extract embedding (512-dim from ArcFace)
